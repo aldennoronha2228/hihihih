@@ -383,12 +383,13 @@ export class HardwareRuntime {
       pins[pin] = { level: channel.level, drive: channel.drive }
     }
     const pico = this.project?.board === 'pi-pico'
+    const c3 = this.project?.board === 'esp32-c3'
     return {
-      running: simulator?.isRunning() ?? false, engine: pico ? 'Velxio RP2040Simulator / rp2040js' : 'Velxio AVRSimulator / avr8js', artifact_id: this.artifactId,
+      running: simulator?.isRunning() ?? false, engine: c3 ? 'Velxio Esp32C3Simulator / RiscVCore (experimental)' : pico ? 'Velxio RP2040Simulator / rp2040js' : 'Velxio AVRSimulator / avr8js', artifact_id: this.artifactId,
       cycles, simulated_ms: clock ? cycles * 1000 / clock : 0, serial: this.serial, serial_link: simulator instanceof AVRSimulator ? simulator.serialLink() : this.serialLink, pins,
       board: this.project?.board ?? null, clock_hz: clock, samples: this.getSamples().slice(-256), sample_capacity: SAMPLE_CAPACITY, dropped_samples: this.droppedSamples,
       limitations: [
-        pico ? 'RP2040 GPIO, UART0, timers and ADC use the real single-core emulator at 125 MHz; USB CDC, second core and wireless are not supported.' : 'Uno/Nano ATmega328P or Mega ATmega2560 GPIO, UART0, timers and ADC use the real AVR emulator at 16 MHz; Nano A6/A7 are analog-only, not digital channels.',
+        c3 ? 'Experimental ESP32-C3 RV32IMC execution at a nominal 160 MHz uses the vendor core and public ROM; upstream peripheral/ROM coverage is incomplete and Arduino firmware execution is not certified. GPIO drive direction is not reported; UART0 only, no USB CDC or wireless.' : pico ? 'RP2040 GPIO, UART0, timers and ADC use the real single-core emulator at 125 MHz; USB CDC, second core and wireless are not supported.' : 'Uno/Nano ATmega328P or Mega ATmega2560 GPIO, UART0, timers and ADC use the real AVR emulator at 16 MHz; Nano A6/A7 are analog-only, not digital channels.',
         'Digital edge capture uses simulator timestamps; the bounded shared ring drops oldest edges on overrun. Unobserved levels are unknown.',
         'LED wiring is digital continuity only; resistor current and analog/SPICE measurements are not modeled by this runtime.',
         'Only LEDs and rail-connected pushbuttons have peripheral behavior here; other catalog parts are placement-only.',
@@ -408,4 +409,8 @@ export class HardwareRuntime {
     this.simulator?.stop()
     this.cleanups.forEach(cleanup => cleanup())
     if (this.timer) clearInterval(this.timer)
-    th
+    this.socket?.close()
+    this.elements.clear()
+    this.listeners.clear()
+  }
+}
