@@ -47,7 +47,8 @@ test.describe('genuine ESP32-C3 browser runtime', () => {
   })
 
   test('validates real merged artifact and existing board pin APIs', async ({ page }) => {
-    await page.goto('/')
+    await page.route('**/c3-runtime-test', route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>C3 runtime test</title>' }))
+    await page.goto('/c3-runtime-test')
     const results = await page.evaluate(async ({ project, artifact }) => {
       const path = '/src/hardware/runtime.ts'
       const { validateRuntimeArtifact, boardPin } = await import(path)
@@ -57,7 +58,7 @@ test.describe('genuine ESP32-C3 browser runtime', () => {
       }
       const payload = artifact.program ?? artifact.bin!
       const bytes = atob(payload)
-      for (const offset of [12, 0x8000, 0x1000c, 0x10018]) {
+      for (const offset of [12, 0x8000, 0x1000c, 0x1001f]) {
         const corrupted = bytes.slice(0, offset) + String.fromCharCode(bytes.charCodeAt(offset) ^ 0xff) + bytes.slice(offset + 1)
         try { validateRuntimeArtifact(project, { ...artifact, program: btoa(corrupted), bin: btoa(corrupted) }); errors.push('accepted') } catch (error) { errors.push(String(error)) }
       }
@@ -70,7 +71,8 @@ test.describe('genuine ESP32-C3 browser runtime', () => {
   })
 
   test('rejects missing ROM and cancels asynchronous startup on stop/dispose', async ({ page }) => {
-    await page.goto('/')
+    await page.route('**/c3-runtime-test', route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>C3 runtime test</title>' }))
+    await page.goto('/c3-runtime-test')
     await page.route('**/boards/esp32c3-rom.bin', route => route.fulfill({ status: 404, body: 'missing' }))
     const missing = await page.evaluate(async ({ project, artifact }) => {
       const path = '/src/hardware/runtime.ts'
@@ -99,7 +101,8 @@ test.describe('genuine ESP32-C3 browser runtime', () => {
 
   test('executes backend-compiled Serial and GPIO2 delay(200) firmware', async ({ page }, testInfo) => {
     test.setTimeout(120_000)
-    await page.goto('/')
+    await page.route('**/c3-runtime-test', route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>C3 runtime test</title>' }))
+    await page.goto('/c3-runtime-test')
     const evidence = await page.evaluate(async ({ project, artifact }) => {
       const path = '/src/hardware/runtime.ts'
       const { HardwareRuntime } = await import(path)

@@ -25,6 +25,8 @@ def _positive_int(value, name):
 
 
 def _origin(value):
+    if not value or any(character.isspace() or ord(character) < 32 or ord(character) == 127 for character in value):
+        return None
     try:
         parsed = urlsplit(value)
         if (parsed.scheme not in ('http', 'https') or not parsed.hostname
@@ -137,7 +139,7 @@ class SecurityMiddleware:
             return
         path = scope.get('path', '')
         api = path == '/api' or path.startswith('/api/')
-        protected = api or path in DOC_PATHS
+        protected = api or path in DOC_PATHS or path.startswith('/docs/') or path.startswith('/redoc/')
         headers = {}
         for key, value in scope.get('headers', []):
             headers.setdefault(key.lower(), []).append(value)

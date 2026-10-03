@@ -44,8 +44,8 @@ class RemoteSimulationClient:
                 or any(c.isspace() for c in url) or "\\" in url
                 or (port is not None and not 1 <= port <= 65535)):
             raise RemoteSimulationError("REMOTE_SIMULATION_URL must be a valid HTTPS URL without credentials, query, or fragment")
-        if not isinstance(token, str) or len(token) < 32 or any(c.isspace() for c in token):
-            raise RemoteSimulationError("REMOTE_SIMULATION_TOKEN must be a non-whitespace token of at least 32 characters")
+        if not isinstance(token, str) or not re.fullmatch(r"[\x21-\x7e]{32,}", token):
+            raise RemoteSimulationError("REMOTE_SIMULATION_TOKEN must be at least 32 printable non-whitespace ASCII characters")
         self._client = httpx.AsyncClient(
             base_url=url.rstrip("/") + "/",
             headers={"Authorization": "Bearer " + token},
@@ -107,10 +107,13 @@ class RemoteSimulationClient:
         validate_flash(firmware_b64)
         return await self._request("POST", "sessions", {"board_id": board_id, "firmware_b64": firmware_b64})
 
-    async def results(self, session_id: str, *, after: int = 0):
+    async def read(self, session_id: str, *, after: int = 0):
         if type(after) is not int or after < 0:
             raise ValueError("after must be a nonnegative integer")
         return await self._request("GET", self._session_path(session_id) + f"?after={after}")
+
+    async def results(self, session_id: str, *, after: int = 0):
+        return await self.read(session_id, after=after)
 
     async def stop(self, session_id: str):
         return await self._request("POST", self._session_path(session_id) + "/stop", {})

@@ -249,3 +249,229 @@ def test_gateway_safe_errors_and_no_redirects(mode):
             assert TOKEN not in str(exc.value)
     asyncio.run(run())
     assert len(calls) == 1
+
+
+@pytest.mark.parametrize("token", [None, "short", "x" * 32 + "é", "x" * 32 + "\n", "x" * 32 + "\x7f"])
+def test_invalid_tokens_rejected(token):
+    with pytest.raises(RemoteSimulationError):
+        RemoteSimulationClient("https://configured.example", token)
+    if token is not None:
+        with pytest.raises(RuntimeError):
+            server.create_app(manager=FakeManager(), token=token)
+
+
+def test_duplicate_auth_and_no_public_documentation():
+    with TestClient(server.create_app(manager=FakeManager(), token=TOKEN)) as client:
+        duplicate = [("Authorization", "Bearer " + TOKEN)] * 2
+        assert client.get("/health", headers=duplicate).status_code == 401
+        assert client.get("/docs", headers=HEADERS).status_code == 404
+        assert client.get("/openapi.json", headers=HEADERS).status_code == 404
+
+
+def test_client_server_end_to_end_and_close():
+    async def run():
+        manager = FakeManager()
+        app = server.create_app(manager=manager, token=TOKEN)
+        async with app.router.lifespan_context(app):
+            client = RemoteSimulationClient("https://configured.example", TOKEN,
+                                            transport=httpx.ASGITransport(app=app))
+            async with client:
+                assert (await client.capabilities())["boards"]["esp32-c3"]["serial"]
+                result = await client.start("esp32-c3", FLASH)
+                session_id = result["session_id"]
+                assert (await client.read(session_id))["serial"] == "hello\n"
+                assert (await client.results(session_id, after=result["cursor"]))["events"] == []
+                await client.serial_input(session_id, b"test")
+                assert (await client.stop(session_id))["status"] == "stopped"
+            assert client._client.is_closed
+            assert manager.inputs == [(session_id, b"test")]
+        assert not manager.live
+        assert manager.stopped.count(session_id) == 1
+    asyncio.run(run())
+
+
+def test_cancelled_start_cleans_session():
+    async def run():
+        manager = FakeManager("scheduled")
+        app = server.create_app(manager=manager, token=TOKEN, max_sessions=1)
+        async with app.router.lifespan_context(app):
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="https://test", headers=HEADERS) as client:
+                task = asyncio.create_task(client.post("/sessions", json={"board_id": "esp32-c3", "firmware_b64": FLASH}))
+                await asyncio.sleep(0.02)
+                assert manager.live
+                task.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await task
+                assert not manager.live and manager.stopped
+                manager.mode = "ready"
+                assert (await client.post("/sessions", json={"board_id": "esp32-c3", "firmware_b64": FLASH})).status_code == 201
+        assert not manager.live
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("event,data,state", [("system", {"event": "exited"}, "exited"),
+                                               ("error", {"message": TOKEN}, "exited")])
+def test_terminal_callback_triggers_prompt_cleanup(event, data, state):
+    async def run():
+        manager = FakeManager()
+        app = server.create_app(manager=manager, token=TOKEN)
+        async with app.router.lifespan_context(app):
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="https://test", headers=HEADERS) as client:
+                result = (await client.post("/sessions", json={"board_id": "esp32-c3", "firmware_b64": FLASH})).json()
+                session_id = result["session_id"]
+                await manager.callbacks[session_id](event, data)
+                await asyncio.sleep(1.1)
+                assert session_id not in manager.live
+                response = await client.get("/sessions/" + session_id)
+                assert response.json()["status"] == state
+                assert TOKEN not in response.text
+    asyncio.run(run())
+
+
+def test_ignored_events_do_not_advance_cursor():
+    async def run():
+        session = server.Session("a" * 32, "esp32-c3", 0)
+        await session.callback("wifi_status", {"status": "connected"})
+        assert session.result()["cursor"] == 0
+        await session.callback("system", {"event": "exited"})
+        await session.callback("serial_output", {"data": "late"})
+        assert session.result()["cursor"] == 1
+        assert session.result()["serial"] == ""
+    asyncio.run(run())
+
+
+def test_upstream_adapter_tracks_orphan_and_reaps_cleanup(tmp_path):
+    async def run():
+        adapter = server.UpstreamManager.__new__(server.UpstreamManager)
+        class Process:
+            returncode = None
+            killed = False
+            waited = False
+            def kill(self):
+                self.killed = True
+            async def wait(self):
+                self.waited = True
+                self.returncode = -9
+        class Writer:
+            closed = False
+            waited = False
+            def close(self):
+                self.closed = True
+            async def wait_closed(self):
+                self.waited = True
+        class Instance:
+            def __init__(self, session_id, board_type, callback):
+                self.process = Process()
+                self._serial_writer = Writer()
+                self._gpio_writer = None
+                self._tasks = [asyncio.create_task(asyncio.Event().wait())]
+                self.firmware_path = str(tmp_path / "flash.bin")
+                Path(self.firmware_path).write_bytes(b"flash")
+                self.running = True
+        class Manager:
+            def __init__(self):
+                self._instances = {}
+                self.instance = None
+            async def _boot(self, inst, firmware, wifi, forwarding):
+                assert not wifi and forwarding == 0
+                self.instance = inst
+                self._instances.clear()
+                raise RuntimeError("upstream removed its failed instance")
+            async def _shutdown(self, inst):
+                inst._tasks.clear()
+        adapter.manager = Manager()
+        adapter.instance_class = Instance
+        adapter.boots = {}
+        adapter.instances = {}
+        with pytest.raises(RuntimeError):
+            await adapter.start("a" * 32, "esp32-c3", None, FLASH)
+        inst = adapter.manager.instance
+        tasks = list(inst._tasks)
+        await adapter.stop("a" * 32)
+        assert inst.process.killed and inst.process.waited
+        assert inst._serial_writer.closed and inst._serial_writer.waited
+        assert all(task.done() for task in tasks)
+        assert not Path(inst.firmware_path).exists()
+        assert not adapter.instances and not adapter.boots
+        await adapter.stop("a" * 32)
+    asyncio.run(run())
+
+
+def test_smoke_start_read_stop_and_failure_cleanup(tmp_path):
+    smoke_spec = importlib.util.spec_from_file_location("remote_smoke", Path(__file__).with_name("smoke.py"))
+    smoke = importlib.util.module_from_spec(smoke_spec)
+    smoke_spec.loader.exec_module(smoke)
+    from argparse import Namespace
+    firmware = tmp_path / "merged.bin"
+    firmware.write_bytes(b"flash")
+    async def run():
+        manager = FakeManager()
+        app = server.create_app(manager=manager, token=TOKEN)
+        async with app.router.lifespan_context(app):
+            def factory():
+                return RemoteSimulationClient("https://configured.example", TOKEN,
+                                              transport=httpx.ASGITransport(app=app))
+            args = Namespace(board="esp32-c3", firmware=firmware, seconds=0.01, expect_serial="hello")
+            await smoke.check(args, client_factory=factory)
+            assert not manager.live
+            args.expect_serial = "missing-marker"
+            with pytest.raises(RemoteSimulationError):
+                await smoke.check(args, client_factory=factory)
+            assert not manager.live
+    asyncio.run(run())
+
+
+def test_machine_probe_advertises_only_native_support(monkeypatch):
+    async def run():
+        adapter = server.UpstreamManager.__new__(server.UpstreamManager)
+        adapter.machines = {"esp32": ("xtensa", "esp32"), "esp32-s3": ("xtensa", "esp32s3"),
+                            "esp32-c3": ("riscv32", "esp32c3")}
+        calls = []
+        class Probe:
+            returncode = None
+            async def communicate(self):
+                self.returncode = 0
+                return b"Supported machines:\nesp32 test machine\n", b""
+        async def subprocess(*args, **kwargs):
+            calls.append(args)
+            return Probe()
+        monkeypatch.setattr(server.shutil, "which", lambda binary: "/fake/xtensa" if binary == "xtensa" else None)
+        monkeypatch.setattr(server.asyncio, "create_subprocess_exec", subprocess)
+        capabilities = await adapter.capabilities()
+        assert set(capabilities) == {"esp32-devkit-v1", "esp32-devkit-c-v4"}
+        assert len(calls) == 1
+        assert calls[0] == ("/fake/xtensa", "-machine", "help")
+    asyncio.run(run())
+
+
+def test_start_budget_never_exceeds_absolute_ttl():
+    manager = FakeManager("scheduled")
+    with TestClient(server.create_app(manager=manager, token=TOKEN, session_timeout=1, startup_timeout=20)) as client:
+        response = start(client)
+        assert response.status_code == 504
+        assert not manager.live
+
+
+def test_serial_failure_is_sanitized():
+    manager = FakeManager()
+    async def serial(session_id, data):
+        raise RuntimeError(TOKEN)
+    manager.serial = serial
+    with TestClient(server.create_app(manager=manager, token=TOKEN)) as client:
+        session_id = start(client).json()["session_id"]
+        response = client.post(f"/sessions/{session_id}/input", headers=HEADERS,
+                               json={"type": "serial", "data_b64": "eA=="})
+        assert response.status_code == 502 and TOKEN not in response.text
+
+
+def test_upstream_hashes_and_docker_copy_inputs():
+    import hashlib
+    for line in Path(__file__).with_name("upstream.sha256").read_text().splitlines():
+        expected, name = line.split()
+        source = ROOT / "vendor" / "velxio" / name
+        assert hashlib.sha256(source.read_bytes()).hexdigest() == expected
+    dockerfile = Path(__file__).with_name("Dockerfile").read_text()
+    for line in dockerfile.splitlines():
+        if line.startswith("COPY ") and "--from=" not in line:
+            for name in line.split()[1:-1]:
+                assert (ROOT / name).is_file(), name

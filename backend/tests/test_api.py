@@ -63,7 +63,8 @@ def test_stream_and_history():
     assert streamed[-1]['status'] == 'success'
     assert streamed[-1]['modelCalls'] == 1
     assert streamed[-1]['toolCalls'] == 0
-    assert len(model.tools) == 17
+    from backend.agent import TOOL_NAMES
+    assert len(model.tools) == len(TOOL_NAMES)
     assert isinstance(model.history[0], SystemMessage)
     conversation = [message for message in model.history if not isinstance(message, SystemMessage)]
     assert conversation[-1].content == 'What is my name?'

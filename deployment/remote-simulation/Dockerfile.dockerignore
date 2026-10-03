@@ -16,4 +16,3 @@ test-results
 playwright-report
 backend/data
 backend/builds
-deployment/remote-simulation

@@ -836,9 +836,15 @@ class HardwareService:
             fail(400, 'Command args must contain finite JSON values.')
         if len(encoded) > 200000:
             fail(400, 'Command arguments are too large.')
-        if name not in TOOLS and name != 'undo':
+        if name not in TOOLS and name not in ('undo', 'wire_circuit', 'validate_circuit'):
             fail(400, 'Unknown hardware command.')
         project = self.get_project(project_id)
+        if name == 'wire_circuit':
+            from backend.circuit_wiring import wire_circuit
+            return await wire_circuit(self, project_id, args)
+        if name == 'validate_circuit':
+            from backend.circuit_wiring import validate_circuit
+            return await validate_circuit(self, project_id)
         if name == 'read_project':
             return project
         if name == 'search_components':
@@ -886,7 +892,8 @@ class HardwareService:
         if name in ('run_simulation', 'stop_simulation', 'read_simulation_results'):
             self.authorize_runtime(project, runtime_token)
             board = BOARD_CONFIG.get(project['board'])
-            if not board or board['simulation'] != 'browser':
+            remote = project['board'] in ('esp32-devkit-v1', 'esp32-devkit-c-v4', 'esp32-s3', 'esp32-c3') and bool(os.getenv('REMOTE_SIMULATION_URL'))
+            if not board or (board['simulation'] != 'browser' and not remote):
                 fail(503, board['unavailable_reason'] if board else 'This board has no configured runtime.')
             runtime_args = {}
             if name == 'run_simulation':
@@ -905,6 +912,9 @@ class HardwareService:
                 runtime_project = copy.deepcopy(project)
                 runtime_project.pop('runtime_token', None)
                 runtime_args = {'project': runtime_project, 'artifact': artifact}
+            if remote:
+                from backend.remote_projects import remote_projects
+                return await remote_projects.command(project, name, runtime_args.get('artifact'))
             return await self.runtime.command(project_id, name, runtime_args)
         return self._mutate(project_id, name, args)
 
@@ -921,6 +931,9 @@ class HardwareCommand(BaseModel):
 
 
 def local_connection(connection):
+    security = connection.scope.get('wireup.security', {})
+    if security.get('production'):
+        return bool(security.get('authentication_required') and security.get('authenticated') and (not security.get('origin_present') or security.get('trusted_origin')))
     def loopback(host):
         if host in ('localhost', 'testclient', 'testserver'):
             return True

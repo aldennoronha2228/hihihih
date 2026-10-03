@@ -24,7 +24,7 @@ ARG INSTALL_EXTENDED_CORES=false
 ARG RP2040_CORE_VERSION=4.5.2
 ARG ESP32_CORE_VERSION=3.2.0
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 HOME=/home/wireup \
-    ARDUINO_CLI_PATH=/usr/local/bin/arduino-cli
+    ARDUINO_CLI_PATH=/usr/local/bin/arduino-cli ARDUINO_BUILD_CACHE_PATH=/tmp/arduino-cache
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl xz-utils \
     && rm -rf /var/lib/apt/lists/* \

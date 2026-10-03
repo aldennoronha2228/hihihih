@@ -44,8 +44,8 @@ export function validateC3Artifact(artifact: RuntimeArtifact, payload: string): 
       if (cursor + length > limit) throw new Error('ESP32-C3 image segment data is truncated or overlaps another flash region.')
       // ESP image alignment padding uses a zero load address and is not mapped.
       if (application && length && address !== 0) {
-        const regions = [[0x42000000, 0x42400000], [0x3c000000, 0x3c400000], [0x3fc80000, 0x3fce0000], [0x4037c000, 0x403dc000]]
-        if (!regions.some(([start, end]) => address >= start && address + length <= end)) throw new Error('ESP32-C3 application segment is outside vendor memory regions.')
+        const regions = [[0x42000000, 0x42400000], [0x3c000000, 0x3c400000], [0x3fc80000, 0x3fce0000], [0x4037c000, 0x403dc000], [0x50000000, 0x50002000]]
+        if (!regions.some(([start, end]) => address >= start && address + length <= end)) throw new Error(`ESP32-C3 application segment 0x${address.toString(16)} (${length} bytes) is outside supported memory regions.`)
       }
       if (entry >= address && entry < address + length) entryLoaded = true
       for (let j = cursor; j < cursor + length; j++) checksum ^= bytes[j]

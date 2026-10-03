@@ -22,7 +22,7 @@ export type HardwareProjectSummary = Pick<HardwareProject, 'id' | 'name' | 'boar
 export type CatalogComponent = {
   id?: string; type?: string; name: string; category?: string; description?: string; thumbnail?: string; tagName?: string
   pins?: (string | HardwarePin)[]; connectable?: boolean; simulation_supported?: boolean
-  properties?: unknown; defaultValues?: Record<string, unknown>; supported_board?: boolean; schematic_only?: boolean; compile?: boolean; simulation?: string; unavailable_reason?: string
+  properties?: unknown; defaultValues?: Record<string, unknown>; supported_board?: boolean; schematic_only?: boolean; compile?: boolean; compile_timeout_seconds?: number; simulation?: string; unavailable_reason?: string
 }
 export type HardwareCommand =
   | 'read_project' | 'search_components' | 'add_component' | 'remove_component' | 'modify_component'
@@ -39,33 +39,70 @@ export class HardwareApiError extends Error {
   }
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`/api/hardware${path}`, {
-    ...init, headers: { 'Content-Type': 'application/json', ...init?.headers },
-  })
-  const body = await response.json().catch(() => null)
-  if (!response.ok) {
-    const detail = typeof body?.detail === 'string' ? body.detail : `Hardware request failed (${response.status}).`
-    throw new HardwareApiError(detail, response.status)
+export type HardwareRequestOptions = { signal?: AbortSignal; compileTimeoutSeconds?: number }
+
+export function createRequestSignal(timeoutMs: number, signal?: AbortSignal | null) {
+  const controller = new AbortController()
+  let timedOut = false
+  const abort = () => controller.abort(signal?.reason)
+  if (signal?.aborted) abort()
+  else signal?.addEventListener('abort', abort, { once: true })
+  const timer = setTimeout(() => {
+    if (controller.signal.aborted) return
+    timedOut = true
+    controller.abort(new DOMException('Hardware request timed out.', 'TimeoutError'))
+  }, timeoutMs)
+  return {
+    signal: controller.signal,
+    get timedOut() { return timedOut },
+    dispose: () => { clearTimeout(timer); signal?.removeEventListener('abort', abort) },
   }
-  if (body === null) throw new HardwareApiError('Hardware server returned an invalid response.', response.status)
-  return body as T
+}
+
+export function hardwareCommandTimeoutMs(board: string | undefined, name: HardwareCommand, compileTimeoutSeconds?: number): number {
+  if (name !== 'compile_firmware') return 15_000
+  const boardTimeout = board?.startsWith('esp32') || board?.startsWith('xiao-esp32') ? 600
+    : board === 'pi-pico' || board === 'pi-pico-w' ? 300 : 90
+  const seconds = typeof compileTimeoutSeconds === 'number' && Number.isFinite(compileTimeoutSeconds) && compileTimeoutSeconds > 0 ? compileTimeoutSeconds : boardTimeout
+  return Math.min(seconds + 30, 660) * 1000
+}
+
+async function request<T>(path: string, init?: RequestInit, timeoutMs = 15_000, operation = 'Hardware request'): Promise<T> {
+  const deadline = createRequestSignal(timeoutMs, init?.signal)
+  try {
+    const response = await fetch(`/api/hardware${path}`, {
+      ...init, signal: deadline.signal, headers: { 'Content-Type': 'application/json', ...init?.headers },
+    })
+    const body = await response.json().catch(() => null)
+    deadline.signal.throwIfAborted()
+    if (!response.ok) {
+      const detail = typeof body?.detail === 'string' ? body.detail : `Hardware request failed (${response.status}).`
+      throw new HardwareApiError(detail, response.status)
+    }
+    if (body === null) throw new HardwareApiError('Hardware server returned an invalid response.', response.status)
+    return body as T
+  } catch (error) {
+    if (deadline.timedOut) throw new HardwareApiError(`${operation} timed out after ${timeoutMs / 1000} seconds. Check the hardware service and retry. The server operation may still be in progress.`, 408)
+    if (deadline.signal.aborted) throw deadline.signal.reason
+    if (error instanceof HardwareApiError) throw error
+    throw new HardwareApiError('Unable to reach the hardware service. Check your connection and retry.', 0)
+  } finally { deadline.dispose() }
 }
 
 export const hardwareApi = {
-  listProjects: () => request<{ projects: HardwareProjectSummary[] }>('/projects'),
-  createProject: (name: string) => request<HardwareProject>('/projects', {
-    method: 'POST', body: JSON.stringify({ name, board: 'unselected' }),
+  listProjects: (options: HardwareRequestOptions = {}) => request<{ projects: HardwareProjectSummary[] }>('/projects', { signal: options.signal }),
+  createProject: (name: string, options: HardwareRequestOptions = {}) => request<HardwareProject>('/projects', {
+    method: 'POST', body: JSON.stringify({ name, board: 'unselected' }), signal: options.signal,
   }),
-  deleteProject: (id: string) => request<{ deleted: string }>(`/projects/${encodeURIComponent(id)}`, { method: 'DELETE' }),
-  getProject: (id: string) => request<HardwareProject>(`/projects/${encodeURIComponent(id)}`),
-  catalog: (query = '', limit = 200) => request<{ components: CatalogComponent[]; boards: CatalogComponent[] }>(
-    `/catalog?q=${encodeURIComponent(query)}&limit=${limit}`,
+  deleteProject: (id: string, options: HardwareRequestOptions = {}) => request<{ deleted: string }>(`/projects/${encodeURIComponent(id)}`, { method: 'DELETE', signal: options.signal }),
+  getProject: (id: string, options: HardwareRequestOptions = {}) => request<HardwareProject>(`/projects/${encodeURIComponent(id)}`, { signal: options.signal }, 15_000, 'Project read'),
+  catalog: (query = '', limit = 200, options: HardwareRequestOptions = {}) => request<{ components: CatalogComponent[]; boards: CatalogComponent[] }>(
+    `/catalog?q=${encodeURIComponent(query)}&limit=${limit}`, { signal: options.signal },
   ),
-  command: <T = HardwareProject>(project: Pick<HardwareProject, 'id' | 'runtime_token'>, name: HardwareCommand, args: Record<string, unknown> = {}) =>
+  command: <T = HardwareProject>(project: Pick<HardwareProject, 'id' | 'runtime_token'> & Partial<Pick<HardwareProject, 'board'>>, name: HardwareCommand, args: Record<string, unknown> = {}, options: HardwareRequestOptions = {}) =>
     request<T>(`/project/${encodeURIComponent(project.id)}/command`, {
-      method: 'POST', body: JSON.stringify({ name, args, runtime_token: project.runtime_token }),
-    }),
+      method: 'POST', body: JSON.stringify({ name, args, runtime_token: project.runtime_token }), signal: options.signal,
+    }, hardwareCommandTimeoutMs(project.board, name, options.compileTimeoutSeconds), `Hardware ${name.replaceAll('_', ' ')}`),
 }
 
 export function catalogType(component: CatalogComponent): string {

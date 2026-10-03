@@ -39,7 +39,9 @@ export class ComponentRegistry {
   async load(): Promise<void> {
     if (this.loaded) return;
     if (this._loadPromise) return this._loadPromise;
-    this._loadPromise = this._doLoad();
+    this._loadPromise = this._doLoad().finally(() => {
+      this._loadPromise = null;
+    });
     return this._loadPromise;
   }
 
@@ -228,7 +230,7 @@ export class ComponentRegistry {
       console.log(`Loaded ${this.allComponents.length} components from metadata`);
     } catch (error) {
       console.error('Failed to load component metadata:', error);
-      // Continue with empty registry - app should still work with manual component addition
+      throw error;
     }
   }
 
@@ -420,6 +422,8 @@ export class ComponentRegistry {
 
 // Auto-load on module import
 const registry = ComponentRegistry.getInstance();
-registry.load();
+void registry.load().catch((error) => {
+  console.error('Component registry initialization failed:', error);
+});
 
 export default registry;

@@ -53,7 +53,10 @@ catalog board IDs as option IDs and none for an analog circuit without a board.
 Other questions are optional; ask only unresolved decisions, with at most six options.
 Never add or replace a board unless the confirmed board answer authorizes it.
 Once confirmed, read_project, search_components for exact component IDs/pins,
-add and connect the actual parts, write working firmware, and compile if requested
+add the actual parts, use wire_circuit for validated atomic batches of exact
+connections, then validate_circuit and fix proven errors before writing firmware.
+Explain validation warnings and its limited scope; do not claim broad electrical
+certification. Write working firmware, and compile if requested
 or needed for the build. Use IDs from successful tool results, not imagined IDs.
 Perform revision-changing operations sequentially. Every successful mutation
 returns the next revision; use it for the next operation. On stale revision read
@@ -98,6 +101,19 @@ class _Questions(_Args):
     summary: str = Field(min_length=1, max_length=1000)
 
 
+class _Waypoint(_Args):
+    x: float = Field(ge=-1000000, le=1000000)
+    y: float = Field(ge=-1000000, le=1000000)
+
+
+class _BatchWire(_Args):
+    id: str | None = Field(default=None, max_length=80)
+    start: dict[str, str] = Field(alias='from')
+    to: dict[str, str]
+    color: str | None = Field(default=None, max_length=64)
+    waypoints: list[_Waypoint] | None = Field(default=None, max_length=100)
+
+
 class _Endpoint(_Args):
     component: str = Field(min_length=1, max_length=128)
     pin: str = Field(min_length=1, max_length=128)
@@ -122,6 +138,8 @@ _TOOL_FIELDS = {
     'modify_component': {**_id, **_position, **_revision},
     'connect_wire': {'from': (_Endpoint, ...), 'to': (_Endpoint, ...), 'color': _optional(str, max_length=64), 'id': _optional(str, min_length=1, max_length=128), **_revision},
     'remove_wire': {**_id, **_revision},
+    'wire_circuit': {'batch': (list[_BatchWire], Field(min_length=1, max_length=200)), **_revision},
+    'validate_circuit': {},
     'generate_firmware': {'source': _source, **_revision},
     'read_firmware': {},
     'edit_firmware': {'source': _optional(str, min_length=1, max_length=200000), 'old': _optional(str, min_length=1, max_length=200000), 'new': _optional(str, max_length=200000), **_revision},
@@ -136,7 +154,7 @@ HARDWARE_TOOL_NAMES = tuple(_TOOL_FIELDS)
 TOOL_NAMES = (*HARDWARE_TOOL_NAMES, 'ask_project_questions', 'search_example_requirements')
 _READ_FIRST = frozenset({
     'add_component', 'remove_component', 'modify_component', 'connect_wire',
-    'remove_wire', 'generate_firmware', 'edit_firmware', 'compile_firmware',
+    'remove_wire', 'wire_circuit', 'generate_firmware', 'edit_firmware', 'compile_firmware',
 })
 _MUTATIONS = _READ_FIRST - {'compile_firmware'}
 _CONFIRM_FIRST = _READ_FIRST | {'run_simulation'}
@@ -150,6 +168,8 @@ _DESCRIPTIONS = {
     'modify_component': 'Change a component position, rotation, or properties.',
     'connect_wire': 'Connect two known component pins in the current project.',
     'remove_wire': 'Remove a wire from the current project.',
+    'wire_circuit': 'Add a whole batch of exact pin connections atomically, with revision check and known rail-short validation. One invalid connection rejects all changes. Returns project, added wires, warnings and validation scope.',
+    'validate_circuit': 'Inspect actual current wires and known rail/LED topology; return evidence and limited-validation warnings. Does not certify general electrical safety.',
     'generate_firmware': 'Write complete model-generated Arduino source to the current project.',
     'read_firmware': 'Read the current project firmware source and revision.',
     'edit_firmware': 'Replace firmware with source, or make one exact old/new replacement.',
@@ -429,6 +449,8 @@ async def stream_agent(model, history, project_id=None, runtime_token=None, requ
         else:
             result = await _get_service().command(project_id, name, args, runtime_token=runtime_token)
         result = _public(result)
+        if name == 'wire_circuit' and isinstance(result, dict) and 'project' in result:
+            result = {**result, 'project': {key: value for key, value in result['project'].items() if key in ('id', 'revision', 'board', 'components', 'wires')}}
         if name == 'search_components' and isinstance(result, dict):
             result = {'components': [{key: value for key, value in item.items() if key in ('id', 'name', 'category', 'pins', 'defaultValues', 'connectable', 'supported_board')} for item in result.get('components', [])[:8]]}
         if name in _MUTATIONS and isinstance(result, dict) and 'revision' in result:

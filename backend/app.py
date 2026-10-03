@@ -17,6 +17,7 @@ from backend.bedrock_model import bedrock_configured
 from backend.plain_chat import stream_plain_chat
 from backend.hardware import router as hardware_router, local_connection
 from backend.sample_projects import router as sample_router
+from backend.security import SecurityMiddleware
 
 ENV_PATH = Path(__file__).resolve().parents[1] / '.env'
 load_dotenv(ENV_PATH)
@@ -84,6 +85,7 @@ def event(kind: str, **values) -> str:
 
 def create_app(model_factory=None, api_key=None):
     application = FastAPI(title='WireUp LangChain API')
+    application.add_middleware(SecurityMiddleware)
     application.state.model_factory = model_factory
     application.include_router(hardware_router)
     application.include_router(sample_router)

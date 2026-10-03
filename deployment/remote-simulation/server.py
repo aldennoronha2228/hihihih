@@ -63,6 +63,7 @@ class UpstreamManager:
         self.instance_class = EspInstance
         self.machines = _MACHINE
         self.boots = {}
+        self.instances = {}
 
     async def capabilities(self):
         supported = {}
@@ -83,8 +84,11 @@ class UpstreamManager:
                         if process.returncode == 0:
                             names = {line.split()[0] for line in output.decode(errors="replace").splitlines() if line.split()}
                     except (OSError, asyncio.TimeoutError):
+                        pass
+                    finally:
                         if process and process.returncode is None:
-                            process.kill()
+                            with suppress(ProcessLookupError):
+                                process.kill()
                             await process.wait()
                 probes[binary] = names
             if machine in probes[binary]:
@@ -94,6 +98,7 @@ class UpstreamManager:
     async def start(self, session_id, board_type, callback, firmware_b64):
         inst = self.instance_class(session_id, board_type, callback)
         self.manager._instances[session_id] = inst
+        self.instances[session_id] = inst
         task = asyncio.create_task(self.manager._boot(inst, firmware_b64, False, 0))
         self.boots[session_id] = task
         await task
@@ -109,13 +114,30 @@ class UpstreamManager:
                 task.cancel()
             with suppress(asyncio.CancelledError, Exception):
                 await task
-        inst = self.manager._instances.pop(session_id, None)
+        self.manager._instances.pop(session_id, None)
+        inst = self.instances.pop(session_id, None)
         if inst:
             process = inst.process
-            await self.manager._shutdown(inst)
-            if process and process.returncode is None:
-                process.kill()
-                await process.wait()
+            tasks = list(inst._tasks)
+            writers = [inst._serial_writer, inst._gpio_writer]
+            try:
+                await self.manager._shutdown(inst)
+            finally:
+                for child in tasks:
+                    child.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+                for writer in writers:
+                    if writer:
+                        writer.close()
+                        with suppress(Exception):
+                            await asyncio.wait_for(writer.wait_closed(), 1)
+                if process and process.returncode is None:
+                    with suppress(ProcessLookupError):
+                        process.kill()
+                    await process.wait()
+                if inst.firmware_path:
+                    with suppress(FileNotFoundError):
+                        os.unlink(inst.firmware_path)
 
     async def serial(self, session_id, data):
         if not self.running(session_id):
@@ -133,11 +155,11 @@ class Session:
     events: deque = field(default_factory=lambda: deque(maxlen=512))
     ready: asyncio.Event = field(default_factory=asyncio.Event)
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    cleaned: bool = False
 
     async def callback(self, event_type, data):
-        if self.state in {"stopped", "expired", "failed"}:
+        if self.state in {"stopped", "expired", "failed", "exited"}:
             return
-        self.sequence += 1
         if event_type == "serial_output":
             data = {"data": str(data.get("data", ""))[:4096]}
         elif event_type == "gpio_change":
@@ -148,6 +170,7 @@ class Session:
             data = {"message": "Emulator reported an error"}
         else:
             return
+        self.sequence += 1
         self.events.append({"sequence": self.sequence, "type": event_type, "data": data})
         if event_type == "system" and data.get("event") == "booted":
             self.state = "running"
@@ -197,7 +220,7 @@ class RequestGuard:
 def create_app(*, manager=None, token=None, max_sessions=4, session_timeout=300,
                startup_timeout=20, retention=60):
     token = token if token is not None else os.environ.get("REMOTE_SIMULATION_TOKEN", "")
-    if not re.fullmatch(r"[\x21-\x7e]{32,}", token):
+    if not isinstance(token, str) or not re.fullmatch(r"[\x21-\x7e]{32,}", token):
         raise RuntimeError("REMOTE_SIMULATION_TOKEN must be at least 32 printable non-whitespace ASCII characters")
     if not 1 <= max_sessions <= 16 or not 1 <= session_timeout <= 3600 or not 0 < startup_timeout <= 25 or not 1 <= retention <= 300:
         raise ValueError("Invalid session limits")
@@ -207,8 +230,10 @@ def create_app(*, manager=None, token=None, max_sessions=4, session_timeout=300,
 
     async def stop(session, state):
         async with session.lock:
-            await manager.stop(session.id)
             session.state = state
+            if not session.cleaned:
+                await manager.stop(session.id)
+                session.cleaned = True
 
     async def sweep():
         while True:
@@ -220,6 +245,8 @@ def create_app(*, manager=None, token=None, max_sessions=4, session_timeout=300,
                     await stop(session, "exited")
                 if age >= session_timeout and session.state not in {"stopped", "expired", "failed", "exited"}:
                     await stop(session, "expired")
+                if session.state in {"stopped", "expired", "failed", "exited"} and not session.cleaned:
+                    await stop(session, session.state)
                 if age >= session_timeout + retention:
                     await stop(session, session.state)
                     sessions.pop(session.id, None)
@@ -284,7 +311,7 @@ def create_app(*, manager=None, token=None, max_sessions=4, session_timeout=300,
                     await session.ready.wait()
                     if session.state != "running" or not manager.running(session.id):
                         raise RuntimeError("Emulator did not become ready")
-                await asyncio.wait_for(boot(), startup_timeout)
+                await asyncio.wait_for(boot(), min(startup_timeout, session_timeout))
             return session.result()
         except BaseException as exc:
             await stop(session, "failed")
@@ -312,7 +339,12 @@ def create_app(*, manager=None, token=None, max_sessions=4, session_timeout=300,
         async with session.lock:
             if session.state != "running" or not manager.running(session_id):
                 raise HTTPException(409, "Session is not running")
-            await asyncio.wait_for(manager.serial(session_id, data), 5)
+            try:
+                await asyncio.wait_for(manager.serial(session_id, data), 5)
+            except asyncio.TimeoutError:
+                raise HTTPException(504, "Serial input timed out") from None
+            except Exception:
+                raise HTTPException(502, "Serial input failed") from None
         return {"session_id": session_id, "accepted_bytes": len(data)}
 
     return app

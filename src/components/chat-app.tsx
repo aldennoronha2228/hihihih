@@ -56,7 +56,7 @@ export function ChatApp({ projectId, runtimeToken, embedded = false, initialProm
 
   const checkHealth = useCallback(async () => {
     try {
-      const response = await fetch('/api/health')
+      const response = await fetch('/api/health', { signal: AbortSignal.timeout(10_000) })
       if (!response.ok) throw new Error()
       const data = await response.json()
       if (typeof data.configured !== 'boolean' || typeof data.model !== 'string') throw new Error()

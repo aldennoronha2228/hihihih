@@ -71,7 +71,7 @@ def test_env_configuration(monkeypatch):
 
 
 @pytest.mark.parametrize('path', ['/api/chat', '/api/hardware/projects', '/api/health',
-                                  '/docs', '/redoc', '/openapi.json', '/docs/oauth2-redirect'])
+                                  '/docs', '/docs/private', '/redoc', '/openapi.json', '/docs/oauth2-redirect'])
 def test_auth_covers_api_and_docs(path):
     middleware = SecurityMiddleware(echo, production=True, access_token='test-token', public_health=False)
     response = run(middleware, scope(path, method='GET'))
@@ -103,6 +103,7 @@ def test_optional_auth_and_local_limits():
     ('https://evil.example', 403), ('https://deploy.example.evil', 403),
     ('https://deploy.example/path', 403), ('null', 403), ('file://localhost', 403),
     ('https://user@deploy.example', 403), ('http://deploy.example', 403),
+    ('https://deploy.example\n', 403),
 ])
 def test_exact_origin_allowlist(origin, status):
     middleware = SecurityMiddleware(echo, production=True, access_token='test-token',
@@ -246,6 +247,43 @@ def test_concurrency_slot_released_on_failures(failure):
         assert (await exchange(middleware))[0]['status'] == 200
 
     asyncio.run(scenario())
+
+
+def test_upload_holds_budget_and_unrelated_api_bypasses_it():
+    async def scenario():
+        uploading = asyncio.Event()
+        finish = asyncio.Event()
+
+        async def slow_receive():
+            uploading.set()
+            await finish.wait()
+            return {'type': 'http.request', 'body': b''}
+
+        async def discard(message):
+            pass
+
+        middleware = SecurityMiddleware(echo, production=False, max_concurrent_requests=1)
+        first = asyncio.create_task(middleware(scope(), slow_receive, discard))
+        await uploading.wait()
+        assert (await exchange(middleware))[0]['status'] == 429
+        assert (await exchange(middleware, scope('/api/hardware/catalog', method='GET')))[0]['status'] == 200
+        finish.set()
+        await first
+        assert (await exchange(middleware))[0]['status'] == 200
+
+    asyncio.run(scenario())
+
+
+def test_disconnect_is_forwarded_after_body_replay():
+    async def checked(scope, receive, send):
+        assert (await receive())['body'] == b'hello'
+        assert (await receive())['type'] == 'http.disconnect'
+        await send({'type': 'http.response.start', 'status': 200, 'headers': []})
+        await send({'type': 'http.response.body', 'body': b''})
+
+    response = run(SecurityMiddleware(checked, production=False), chunks=[
+        {'type': 'http.request', 'body': b'hello'}, {'type': 'http.disconnect'}])
+    assert response[0]['status'] == 200
 
 
 def test_body_timeout(monkeypatch):

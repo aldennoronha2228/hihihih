@@ -168,6 +168,7 @@ export function HardwareWorkspace({ chatSlot, children, onProjectChange, schemat
 
   useEffect(() => {
     let active = true
+    const controller = new AbortController()
     setLoading(true); setLoadError(''); setError(''); setProject(null); projectRef.current = null
     setSelected(''); setPins({}); setResults(null); setWireStart(null)
     if (!projectId) {
@@ -175,17 +176,18 @@ export function HardwareWorkspace({ chatSlot, children, onProjectChange, schemat
       setLoading(false)
       return
     }
-    void hardwareApi.getProject(projectId).then(value => {
+    void hardwareApi.getProject(projectId, { signal: controller.signal }).then(value => {
       if (active) acceptProject(value, true)
     }).catch(error => { if (active) setLoadError(error.message) }).finally(() => { if (active) setLoading(false) })
-    return () => { active = false }
+    return () => { active = false; controller.abort() }
   }, [projectId, acceptProject, loadAttempt])
 
   useEffect(() => { onProjectChange?.(project) }, [project, onProjectChange])
 
   useEffect(() => {
     let active = true
-    void hardwareApi.catalog().then(async value => {
+    const controller = new AbortController()
+    void hardwareApi.catalog('', 200, { signal: controller.signal }).then(async value => {
       const registry = ComponentRegistry.getInstance()
       await registry.load()
       for (const board of value.boards) {
@@ -195,19 +197,20 @@ export function HardwareWorkspace({ chatSlot, children, onProjectChange, schemat
         const metadata = registry.getById(alias)
         if (metadata) registry.mergeComponents([{ ...metadata, id, tagName: board.tagName }])
       }
-      if (active) setKnownCatalog(value.components)
+      if (active) setKnownCatalog([...value.components, ...value.boards])
     }).catch(error => { if (active) setError(error.message) })
-    return () => { active = false }
-  }, [])
+    return () => { active = false; controller.abort() }
+  }, [loadAttempt])
 
   useEffect(() => {
     let active = true
+    const controller = new AbortController()
     const timer = setTimeout(() => {
-      void hardwareApi.catalog(query).then(value => {
+      void hardwareApi.catalog(query, 200, { signal: controller.signal }).then(value => {
         if (active) setCatalog([...value.components, ...value.boards].filter((part, index, all) => all.findIndex(other => catalogType(other) === catalogType(part)) === index))
       }).catch(error => { if (active) setError(error.message) })
     }, 200)
-    return () => { active = false; clearTimeout(timer) }
+    return () => { active = false; controller.abort(); clearTimeout(timer) }
   }, [query])
 
   useEffect(() => {
@@ -222,15 +225,20 @@ export function HardwareWorkspace({ chatSlot, children, onProjectChange, schemat
   useEffect(() => {
     if (!projectId || projectRef.current?.id !== projectId) return
     let active = true
+    let inFlight: AbortController | null = null
     const refresh = () => {
-      if (busyRef.current || document.hidden) return
-      void hardwareApi.getProject(projectId).then(next => { if (active) acceptProject(next) }).catch(() => {})
+      if (!active || inFlight || busyRef.current || document.hidden) return
+      const controller = new AbortController()
+      inFlight = controller
+      void hardwareApi.getProject(projectId, { signal: controller.signal }).then(next => { if (active) acceptProject(next) })
+        .catch(error => { if (active && !controller.signal.aborted) setError(error instanceof Error ? error.message : 'Unable to refresh the project.') })
+        .finally(() => { if (inFlight === controller) inFlight = null })
     }
     const timer = setInterval(refresh, 2000)
     window.addEventListener('focus', refresh)
     const agentRefresh = (event: Event) => { if ((event as CustomEvent<string>).detail === projectId) refresh() }
     window.addEventListener('wireup-project-updated', agentRefresh)
-    return () => { active = false; clearInterval(timer); window.removeEventListener('focus', refresh); window.removeEventListener('wireup-project-updated', agentRefresh) }
+    return () => { active = false; inFlight?.abort(); clearInterval(timer); window.removeEventListener('focus', refresh); window.removeEventListener('wireup-project-updated', agentRefresh) }
   }, [projectId, project?.id, acceptProject])
 
   const perform = async (label: string, task: () => Promise<void>) => {
@@ -246,7 +254,9 @@ export function HardwareWorkspace({ chatSlot, children, onProjectChange, schemat
   const command = async (name: HardwareCommand, args: Record<string, unknown> = {}, mutation = false) => {
     const current = projectRef.current
     if (!current) throw new Error('Open a project first.')
-    const value = await hardwareApi.command<unknown>(current, name, { ...args, ...(mutation ? { expected_revision: current.revision } : {}) })
+    const value = await hardwareApi.command<unknown>(current, name, { ...args, ...(mutation ? { expected_revision: current.revision } : {}) }, {
+      compileTimeoutSeconds: knownCatalog.find(item => catalogType(item) === current.board)?.compile_timeout_seconds,
+    })
     if (isHardwareProject(value)) {
       acceptProject(value, name === 'undo')
       if (value.board !== current.board) setNotice(`Selected ${value.board}. ${knownCatalog.find(item => catalogType(item) === value.board)?.unavailable_reason || knownCatalog.find(item => catalogType(item) === value.board)?.description || 'Compile capabilities depend on the selected board; native simulation may require additional setup.'}`)
