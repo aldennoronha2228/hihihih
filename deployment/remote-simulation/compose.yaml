@@ -1,0 +1,28 @@
+services:
+  emulator:
+    build:
+      context: ../..
+      dockerfile: deployment/remote-simulation/Dockerfile
+    environment:
+      REMOTE_SIMULATION_TOKEN: ${REMOTE_SIMULATION_TOKEN:?Set a server-to-server token of at least 32 characters}
+    ports:
+      - "127.0.0.1:8080:8080"
+    user: "10001:10001"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=128m,uid=10001,gid=10001,mode=1770
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    cpus: 2.0
+    mem_limit: 1g
+    pids_limit: 64
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 35s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

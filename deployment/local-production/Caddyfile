@@ -1,0 +1,36 @@
+{
+	email {$WIREUP_TLS_EMAIL}
+	admin off
+}
+
+{$WIREUP_DOMAIN} {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy no-referrer
+		-Server
+	}
+
+	@backend path /api /api/* /docs /docs/* /redoc /openapi.json
+	handle @backend {
+		request_body {
+			max_size 600000
+		}
+		header Cache-Control no-store
+		reverse_proxy backend:8000 {
+			flush_interval -1
+			transport http {
+				dial_timeout 5s
+				response_header_timeout 30s
+			}
+		}
+	}
+
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}

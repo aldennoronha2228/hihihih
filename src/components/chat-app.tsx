@@ -24,7 +24,6 @@ export function ChatApp({ projectId, runtimeToken, embedded = false, initialProm
   const [warning, setWarning] = useState(initial.warning)
   const [draft, setDraft] = useState(initialPrompt || '')
   const initialSent = useRef(false)
-  const [requirements, setRequirements] = useState<Record<string, string> | undefined>()
   const [drawer, setDrawer] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
   const [health, setHealth] = useState<{ configured: boolean; model: string; providers?: ModelOption[] } | null>(null)
@@ -85,14 +84,14 @@ export function ChatApp({ projectId, runtimeToken, embedded = false, initialProm
     } : chat))
   }
 
-  const generate = async (chat: Conversation, context: Message[], answers = requirements) => {
+  const generate = async (chat: Conversation, context: Message[], answers = chat.projectId === projectId ? chat.requirements : undefined) => {
     if (controller.current) return
     const abort = new AbortController()
     controller.current = abort
     setBusy(chat.id)
     const reply: Message = { id: crypto.randomUUID(), role: 'assistant', content: '', status: 'streaming', blocks: [], startedAt: Date.now() }
     setChats(previous => {
-      const updated = { ...chat, messages: [...context, reply], updatedAt: Date.now() }
+      const updated = { ...chat, messages: [...context, reply], updatedAt: Date.now(), requirements: answers, projectId }
       return previous.some(item => item.id === chat.id)
         ? previous.map(item => item.id === chat.id ? updated : item)
         : [updated, ...previous].slice(0, 100)
@@ -163,7 +162,6 @@ export function ChatApp({ projectId, runtimeToken, embedded = false, initialProm
 
   const confirmRequirements = (answers: Record<string, string>) => {
     if (!active || busy) return
-    setRequirements(answers)
     const questionData = active.messages.findLast(item => item.questions)?.questions
     const descriptions = questionData?.questions.map(question => `${question.question}: ${question.options.find(option => option.id === answers[question.id])?.label || answers[question.id]}`).join('\n') || ''
     const message: Message = { id: crypto.randomUUID(), role: 'user', content: 'Project requirements confirmed: ' + JSON.stringify(answers) + '\n' + descriptions + '\nBuild now using tools. Place and connect the circuit components, generate and compile firmware only if the prototype requires a microcontroller, and inspect available real results. Ask if a required capability is unavailable.' }
@@ -224,7 +222,7 @@ export function ChatApp({ projectId, runtimeToken, embedded = false, initialProm
         {!embedded && <div aria-hidden="true" className={`pointer-events-none absolute inset-0 -z-10 ${home ? '' : 'opacity-15'}`}><GradientOrb /></div>}
         <header className={`flex h-12 shrink-0 items-center justify-between gap-3 border-b border-neutral-800/60 px-3 sm:px-4 ${embedded ? 'bg-transparent' : 'bg-[#0a0a0a]/70 backdrop-blur-md'}`}>
           <div className="flex min-w-0 items-center gap-3">{!embedded && <button onClick={() => setDrawer(true)} aria-label="Open sidebar" className="rounded-lg p-2 text-neutral-400 hover:text-white md:hidden"><Menu size={20} /></button>}{embedded && <img src="/wireup-logo.png" alt="" className="size-5 shrink-0 rounded object-contain" />}<span className="truncate text-[13px] font-medium text-neutral-200">{active?.title || 'WireUp agent'}</span></div>
-          {embedded ? <button onClick={() => { setEmbeddedId(undefined); setDraft(''); setRequirements(undefined) }} className="flex shrink-0 items-center gap-1.5 rounded-md border border-neutral-800 px-2 py-1 text-xs text-neutral-400 hover:border-neutral-600 hover:text-neutral-200"><Plus size={13} /> New chat</button>
+          {embedded ? <button onClick={() => { setEmbeddedId(undefined); setDraft('') }} className="flex shrink-0 items-center gap-1.5 rounded-md border border-neutral-800 px-2 py-1 text-xs text-neutral-400 hover:border-neutral-600 hover:text-neutral-200"><Plus size={13} /> New chat</button>
             : <span className="shrink-0 rounded-full border border-neutral-800 px-3 py-1 text-xs text-neutral-400">{selectedModel.label} <span className="hidden sm:inline">· LangGraph</span></span>}
         </header>
         {(warning || connectionError || health && !selectedModel.configured) && <div role="status" className="shrink-0 border-b border-amber-400/10 bg-[#211b11]/95 px-4 py-2 text-center text-xs leading-5 text-amber-200">

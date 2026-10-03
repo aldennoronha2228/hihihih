@@ -1,0 +1,83 @@
+name: wireup-production
+services:
+  ingress:
+    image: wireup-ingress:local-production
+    build:
+      context: ../..
+      dockerfile: deployment/local-production/Dockerfile
+      target: ingress
+    restart: unless-stopped
+    environment:
+      WIREUP_DOMAIN: ${WIREUP_DOMAIN:?Set a public DNS hostname}
+      WIREUP_TLS_EMAIL: ${WIREUP_TLS_EMAIL:?Set an ACME contact email}
+    ports:
+      - '80:80'
+      - '443:443'
+      - '443:443/udp'
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [edge, api]
+    depends_on:
+      backend:
+        condition: service_healthy
+    security_opt: [no-new-privileges:true]
+    mem_limit: 256m
+    pids_limit: 128
+
+  backend:
+    image: wireup-backend:local-production
+    build:
+      context: ../..
+      dockerfile: deployment/local-production/Dockerfile
+      target: backend
+      args:
+        ARDUINO_CLI_SHA256: ${ARDUINO_CLI_SHA256:?Set independently verified Arduino CLI 1.2.2 Linux amd64 SHA256}
+        INSTALL_EXTENDED_CORES: ${INSTALL_EXTENDED_CORES:-false}
+    restart: unless-stopped
+    env_file:
+      - ${WIREUP_PROVIDER_ENV_FILE:?Set absolute path to protected provider env file}
+    environment:
+      WIREUP_DEPLOYMENT: production
+      WIREUP_ACCESS_TOKEN_FILE: /run/secrets/wireup_access_token
+      WIREUP_ALLOWED_ORIGINS: https://${WIREUP_DOMAIN}
+      WIREUP_PUBLIC_HEALTH: 'true'
+      WIREUP_MAX_BODY_BYTES: '600000'
+      WIREUP_MAX_CONCURRENT_REQUESTS: ${WIREUP_MAX_CONCURRENT_REQUESTS:-4}
+      WIREUP_BODY_TIMEOUT_SECONDS: '30'
+    secrets: [wireup_access_token]
+    expose: ['8000']
+    volumes:
+      - projects:/app/backend/data/hardware
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=2147483648,mode=1777
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    init: true
+    cpus: 2.0
+    mem_limit: 4g
+    pids_limit: 256
+    networks: [api, provider_egress]
+    healthcheck:
+      test: ['CMD', 'python', '-c', "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    stop_grace_period: 30s
+
+secrets:
+  wireup_access_token:
+    file: ${WIREUP_ACCESS_TOKEN_FILE:?Set absolute path to protected bearer-token file}
+
+networks:
+  edge: {}
+  api:
+    internal: true
+  provider_egress: {}
+
+volumes:
+  caddy_data: {}
+  caddy_config: {}
+  projects: {}

@@ -21,7 +21,10 @@ export type RuntimeArtifact = Omit<HardwareArtifact, 'hex'> & {
   hex?: string; program?: string; bin?: string; encoding?: string; load_address?: number; size_bytes?: number
   chip?: string; image_kind?: string; flash_size_bytes?: number
 }
-type Simulator = Pick<AVRSimulator, 'pinManager' | 'onBaudRateChange' | 'onPinChangeWithTime' | 'start' | 'stop' | 'isRunning' | 'getClockHz' | 'getCurrentCycles' | 'setPinState' | 'getBusBinding'> & { onSerialData: ((char: string, uart?: number) => void) | null }
+type Simulator = Pick<AVRSimulator, 'pinManager' | 'onBaudRateChange' | 'onPinChangeWithTime' | 'start' | 'stop' | 'isRunning' | 'getClockHz' | 'getCurrentCycles' | 'setPinState'> & {
+  onSerialData: ((char: string, uart?: number) => void) | null
+  getBusBinding(): { uart?: { receive(byte: number): void }[] }
+}
 type PicoSimulator = Simulator & { loadBinary(base64: string): void }
 // Bundle the upstream module without imposing its older rp2040js declarations on the application.
 const picoModules = import.meta.glob<{ RP2040Simulator: new (pins: PinManager) => PicoSimulator }>('../../vendor/velxio/frontend/src/simulation/RP2040Simulator.ts', { eager: true })
@@ -140,6 +143,7 @@ export class HardwareRuntime {
   private serialLink: unknown = null
   private timer: ReturnType<typeof setInterval> | null = null
   private disposed = false
+  private startupVersion = 0
   private queue: Promise<void> = Promise.resolve()
   private elements = new Map<string, HTMLElement>()
   private cleanups: (() => void)[] = []
@@ -191,6 +195,7 @@ export class HardwareRuntime {
       })
     }
     socket.onclose = event => {
+      this.startupVersion++
       this.simulator?.stop()
       if (!this.disposed) {
         onConnection(event.code === 4409 ? 'Owned by another browser' : event.code === 4403 ? 'Runtime authorization failed' : 'Disconnected')
@@ -213,6 +218,7 @@ export class HardwareRuntime {
   async run(project: HardwareProject, artifact: RuntimeArtifact) {
     if (this.disposed) throw new Error('Runtime has been disposed.')
     const payload = validateRuntimeArtifact(project, artifact)
+    const startupVersion = ++this.startupVersion
     this.simulator?.stop()
     this.cleanups.forEach(cleanup => cleanup())
     this.cleanups = []
@@ -224,12 +230,21 @@ export class HardwareRuntime {
     const simulator: Simulator = project.board === 'esp32-c3' ? new C3Simulator(new PinManager()) : project.board === 'pi-pico' ? new RP2040Simulator(new PinManager()) : new AVRSimulator(new PinManager(), project.board === 'arduino-mega' ? 'mega' : 'uno')
     this.simulator = simulator
     const previousSerial = simulator.onSerialData
-    simulator.onSerialData = (char, uart) => {
+    const captureSerial = (char: string, uart?: number) => {
       previousSerial?.(char, uart)
-      if (uart === undefined || uart === 0) this.serial = (this.serial + char).slice(-65536)
+      if (this.simulator === simulator && !this.disposed && (uart === undefined || uart === 0)) this.serial = (this.serial + char).slice(-65536)
     }
+    simulator.onSerialData = captureSerial
     const previousBaud = simulator.onBaudRateChange
-    simulator.onBaudRateChange = (baud, link) => { previousBaud?.(baud, link); this.serialLink = link }
+    const captureBaud: Simulator['onBaudRateChange'] = (baud, link) => {
+      previousBaud?.(baud, link)
+      if (this.simulator === simulator && !this.disposed) this.serialLink = link
+    }
+    simulator.onBaudRateChange = captureBaud
+    this.cleanups.push(() => {
+      if (simulator.onSerialData === captureSerial) simulator.onSerialData = previousSerial
+      if (simulator.onBaudRateChange === captureBaud) simulator.onBaudRateChange = previousBaud
+    })
     const previousEdge = simulator.onPinChangeWithTime
     const capture = (pin: number, level: boolean, timeMs: number) => {
       previousEdge?.(pin, level, timeMs)
@@ -247,7 +262,7 @@ export class HardwareRuntime {
     try {
       if (simulator instanceof C3Simulator) {
         await simulator.loadBinary(payload)
-        if (this.disposed || this.simulator !== simulator) throw new Error('ESP32-C3 startup was cancelled.')
+        if (this.disposed || this.simulator !== simulator || this.startupVersion !== startupVersion) throw new Error('ESP32-C3 startup was cancelled.')
       } else if (simulator instanceof RP2040Simulator) simulator.loadBinary(payload)
       else if (simulator instanceof AVRSimulator) simulator.loadHex(payload)
       this.attachInputs()
@@ -263,7 +278,7 @@ export class HardwareRuntime {
     }
   }
 
-  stop() { this.simulator?.stop(); this.publish() }
+  stop() { this.startupVersion++; this.simulator?.stop(); this.publish() }
 
   getChannels(): string[] {
     if (!this.project || (!AVR_BOARDS.has(this.project.board) && this.project.board !== 'pi-pico' && this.project.board !== 'esp32-c3')) return []

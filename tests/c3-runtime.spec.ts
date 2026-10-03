@@ -21,7 +21,7 @@ let project: HardwareProject
 let artifact: RuntimeArtifact
 
 test.describe('genuine ESP32-C3 browser runtime', () => {
-  test.describe.configure({ mode: 'serial' })
+  test.describe.configure({ mode: 'default' })
   test.beforeAll(async ({ request }) => {
     test.setTimeout(660_000)
     const created = await request.post('/api/hardware/projects', { data: { name: 'C3 dedicated runtime fixture', board: 'esp32-c3' } })
@@ -36,6 +36,8 @@ test.describe('genuine ESP32-C3 browser runtime', () => {
     expect(result.status, result.stderr).toMatch(/compilation_complete|simulation_ready/)
     expect(result.artifact).toBeTruthy()
     artifact = result.artifact
+    artifact = { ...artifact, program: artifact.program ?? artifact.bin }
+    delete artifact.bin
     expect(artifact.chip).toBe('esp32c3')
     expect(artifact.image_kind).toBe('merged-flash')
     expect(artifact.size_bytes).toBe(4 * 1024 * 1024)
@@ -65,6 +67,34 @@ test.describe('genuine ESP32-C3 browser runtime', () => {
     expect(results.errors).not.toContain('accepted')
     expect(results.pins).toEqual([2, 2, 20, 21, null, null])
     expect(results.oldPins).toEqual([19, 53, 25])
+  })
+
+  test('rejects missing ROM and cancels asynchronous startup on stop/dispose', async ({ page }) => {
+    await page.goto('/')
+    await page.route('**/boards/esp32c3-rom.bin', route => route.fulfill({ status: 404, body: 'missing' }))
+    const missing = await page.evaluate(async ({ project, artifact }) => {
+      const path = '/src/hardware/runtime.ts'
+      const { HardwareRuntime } = await import(path)
+      const runtime = new HardwareRuntime(() => {})
+      try { await runtime.run(project, artifact); return 'accepted' } catch (error) { return String(error) } finally { runtime.dispose() }
+    }, { project, artifact })
+    expect(missing).toContain('ROM load failed: HTTP 404')
+    await page.unroute('**/boards/esp32c3-rom.bin')
+    for (const action of ['stop', 'dispose'] as const) {
+      const result = await page.evaluate(async ({ project, artifact, action }) => {
+        const path = '/src/hardware/runtime.ts'
+        const { HardwareRuntime } = await import(path)
+        const runtime = new HardwareRuntime(() => {})
+        const pending = runtime.run(project, artifact).then(() => 'accepted', (error: unknown) => String(error))
+        runtime[action]()
+        const error = await pending
+        const running = runtime.results().running
+        runtime.dispose()
+        return { error, running }
+      }, { project, artifact, action })
+      expect(result.error).toContain('startup was cancelled')
+      expect(result.running).toBeFalsy()
+    }
   })
 
   test('executes backend-compiled Serial and GPIO2 delay(200) firmware', async ({ page }, testInfo) => {

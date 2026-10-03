@@ -1,5 +1,4 @@
 import type { PinManager } from '../../vendor/velxio/frontend/src/simulation/PinManager'
-import type { RiscVCore } from '../../vendor/velxio/frontend/src/simulation/RiscVCore'
 import type { RuntimeArtifact } from './runtime'
 
 export const C3_CLOCK_HZ = 160_000_000
@@ -7,7 +6,7 @@ const FLASH_SIZE = 4 * 1024 * 1024
 
 // Upstream has no counter/ROM setters; keep its private-field compatibility boundary here.
 type VendorC3 = {
-  core: RiscVCore; _romData: Uint8Array | null
+  core: { cycles: number; pc: number }; _romData: Uint8Array | null
   pinManager: PinManager
   onSerialData: ((char: string) => void) | null
   onBaudRateChange: ((baud: number) => void) | null
@@ -22,7 +21,9 @@ const Esp32C3Simulator = modules['../../vendor/velxio/frontend/src/simulation/Es
 
 export function validateC3Artifact(artifact: RuntimeArtifact, payload: string): void {
   if (artifact.format !== 'bin' || artifact.encoding !== 'base64' || artifact.load_address !== 0 || artifact.image_kind !== 'merged-flash' || artifact.chip !== 'esp32c3') throw new Error('ESP32-C3 requires an esp32c3 merged-flash bin artifact with base64 encoding at address 0.')
-  if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(payload)) throw new Error('ESP32-C3 compiler artifact is not valid base64.')
+  // Repeated base64 groups overflow Chrome's regexp stack on a 4 MiB image.
+  const unpadded = payload.replace(/={1,2}$/, '')
+  if (payload.length % 4 || /[^A-Za-z0-9+/]/.test(unpadded) || payload.length - unpadded.length > 2) throw new Error('ESP32-C3 compiler artifact is not valid base64.')
   const decoded = atob(payload)
   if (decoded.length !== FLASH_SIZE || artifact.size_bytes !== FLASH_SIZE || artifact.flash_size_bytes !== FLASH_SIZE) throw new Error('ESP32-C3 requires a complete 4 MiB merged flash image matching size_bytes and flash_size_bytes.')
   const bytes = Uint8Array.from(decoded, char => char.charCodeAt(0))
@@ -41,7 +42,8 @@ export function validateC3Artifact(artifact: RuntimeArtifact, payload: string): 
       const length = view.getUint32(cursor + 4, true)
       cursor += 8
       if (cursor + length > limit) throw new Error('ESP32-C3 image segment data is truncated or overlaps another flash region.')
-      if (application && length) {
+      // ESP image alignment padding uses a zero load address and is not mapped.
+      if (application && length && address !== 0) {
         const regions = [[0x42000000, 0x42400000], [0x3c000000, 0x3c400000], [0x3fc80000, 0x3fce0000], [0x4037c000, 0x403dc000]]
         if (!regions.some(([start, end]) => address >= start && address + length <= end)) throw new Error('ESP32-C3 application segment is outside vendor memory regions.')
       }
@@ -85,7 +87,15 @@ export class C3Simulator {
   getProgramCounter() { return this.vendor.core.pc >>> 0 }
   getBusBinding() { return { uart: [{ receive: (byte: number) => this.vendor.serialWrite(String.fromCharCode(byte & 0xff)) }] } }
   setPinState(pin: number, state: boolean) { this.vendor.setPinState(pin, state) }
-  start() { this.vendor.start() }
+  start() {
+    this.vendor.start()
+    const pc = this.getProgramCounter()
+    const executable = [[0x42000000, 0x42400000], [0x4037c000, 0x403dc000], [0x40000000, 0x40060000], [0x40800000, 0x40820000]]
+    if (!executable.some(([start, end]) => pc >= start && pc < end)) {
+      this.vendor.stop()
+      throw new Error(`Experimental ESP32-C3 execution left executable memory at PC 0x${pc.toString(16)} after ${this.getCurrentCycles()} vendor cycles; upstream firmware execution is unavailable.`)
+    }
+  }
   stop() { this.vendor.stop() }
   isRunning() { return this.vendor.isRunning() }
 }

@@ -17,7 +17,7 @@ export type Message = {
   usage?: { input_tokens: number; output_tokens: number; total_tokens: number; output_token_details?: { reasoning?: number } }
 }
 export type ChatEvent = { questions?: ProjectQuestions['questions']; summary?: string; status?: string; reason?: string; type: string; text?: string; message?: string; model?: string; elapsedMs?: number; usage?: Message['usage'] | null }
-export type Conversation = { id: string; title: string; messages: Message[]; updatedAt: number }
+export type Conversation = { id: string; title: string; messages: Message[]; updatedAt: number; requirements?: Record<string, string>; projectId?: string }
 export const storageKey = 'wireup.chats.v1'
 
 export function readChats(key = storageKey): { chats: Conversation[]; warning: string } {

@@ -101,13 +101,13 @@ export function AgentActivityFeed({ blocks, running = false, outcome, startedAt,
 }
 
 function RunHeader({ running, failed, stopped, startedAt, elapsedMs }: { running: boolean; failed: boolean; stopped: boolean; startedAt?: number; elapsedMs?: number }) {
-  const [, setTick] = useState(0)
+  const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
     if (!running) return
-    const timer = window.setInterval(() => setTick(value => value + 1), 1000)
+    const timer = window.setInterval(() => setNow(Date.now()), 1000)
     return () => window.clearInterval(timer)
   }, [running])
-  const elapsed = running && startedAt ? Date.now() - startedAt : elapsedMs
+  const elapsed = running && startedAt ? now - startedAt : elapsedMs
   const seconds = formatElapsed(elapsed)
   const label = running ? 'Working on your project…' : stopped ? 'Generation stopped' : failed ? 'Finished with errors' : 'Finished'
   return (
