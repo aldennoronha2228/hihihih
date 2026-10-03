@@ -39,8 +39,8 @@ Azure is available in the chat model selector. Set these server-only values in `
 
 ```dotenv
 AZURE_API_KEY=your_azure_key
-AZURE_MODEL_ID=gpt-6.1-sol
-AZURE_BASE_URL=https://project-t3-resource.services.ai.azure.com/openai/v1
+AZURE_MODEL_ID=gpt-4
+AZURE_BASE_URL=
 ```
 
 The model value must match the deployed model name accepted by your Azure resource; change it if your deployment uses a different name. The integration uses Azure's OpenAI-compatible v1 API through LangChain `ChatOpenAI`, with streaming and the existing LangGraph tools. No API-version query is added for this v1 endpoint. Temperature is omitted for compatibility with reasoning models. A live response is unverified until a valid resource key and accessible deployment are supplied. Keys are never sent to the browser.
