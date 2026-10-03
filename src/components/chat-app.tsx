@@ -13,9 +13,13 @@ import type { Conversation, Message } from '@/lib/chat'
 import { defaultModels, readModelSelection } from '@/lib/model-selection'
 import type { ModelOption, ModelProvider } from '@/lib/model-selection'
 
-export function ChatApp({ projectId, runtimeToken, embedded = false, initialPrompt }: { projectId?: string; runtimeToken?: string; embedded?: boolean; initialPrompt?: string } = {}) {
+export function ChatApp({ projectId, runtimeToken, embedded = false, initialPrompt, setupGuidance }: { projectId?: string; runtimeToken?: string; embedded?: boolean; initialPrompt?: string; setupGuidance?: string } = {}) {
   const chatStorageKey = embedded && projectId ? `wireup.project.${projectId}.chats.v1` : storageKey
-  const [initial] = useState(() => readChats(chatStorageKey))
+  const [initial] = useState(() => {
+    const saved = readChats(chatStorageKey)
+    if (!saved.chats.length && setupGuidance) saved.chats = [{ id: crypto.randomUUID(), title: 'Getting started', updatedAt: Date.now(), messages: [{ id: crypto.randomUUID(), role: 'assistant', content: setupGuidance, status: 'done' }] }]
+    return saved
+  })
   const [chats, setChats] = useState(initial.chats)
   const [warning, setWarning] = useState(initial.warning)
   const [draft, setDraft] = useState(initialPrompt || '')
@@ -26,7 +30,8 @@ export function ChatApp({ projectId, runtimeToken, embedded = false, initialProm
   const [health, setHealth] = useState<{ configured: boolean; model: string; providers?: ModelOption[] } | null>(null)
   const [provider, setProvider] = useState<ModelProvider>(readModelSelection)
   const models = health?.providers || defaultModels.map(option => option.id === 'groq' && health ? { ...option, model: health.model, configured: health.configured } : option)
-  const selectedModel = models.find(option => option.id === provider)!
+  const selectedModel = models.find(option => option.id === provider) || defaultModels.find(option => option.id === provider)!
+  const selectedKeyName = { groq: 'GROQ_API_KEY', nvidia: 'NVIDIA_API_KEY', bedrock: 'BEDROCK_API_KEY', azure: 'AZURE_API_KEY' }[provider]
   const changeProvider = (next: ModelProvider) => {
     setProvider(next)
     try { localStorage.setItem('wireup.model-provider', next) } catch { /* Selection remains available for this page. */ }
@@ -40,7 +45,7 @@ export function ChatApp({ projectId, runtimeToken, embedded = false, initialProm
   const navigate = useNavigate()
   const location = useLocation()
   const { id: routeId } = useParams()
-  const [embeddedId, setEmbeddedId] = useState<string | undefined>()
+  const [embeddedId, setEmbeddedId] = useState<string | undefined>(() => initial.chats[0]?.id)
   const id = embedded ? embeddedId : routeId
   const active = chats.find(chat => chat.id === id)
   const home = !id
@@ -191,14 +196,14 @@ export function ChatApp({ projectId, runtimeToken, embedded = false, initialProm
         <Link to="/" className="flex items-center gap-2 text-lg font-semibold tracking-tight"><img src="/wireup-logo.png" alt="" className="size-8 rounded-md object-contain" /> WireUp</Link>
         <button className="rounded-lg p-2 text-neutral-400 md:hidden" aria-label="Close sidebar" onClick={() => setDrawer(false)}><X size={20} /></button>
       </div>
-      <Link to="/" className="mb-3 flex items-center gap-2 rounded-xl border border-violet-400/30 bg-violet-400/5 px-3 py-2.5 text-sm text-violet-200"><MessageSquare size={17} /> Back to WireUp</Link>
-      <button onClick={() => { navigate('/assistant'); setDrawer(false); setDraft('') }} className="mb-8 flex w-full items-center gap-2 rounded-xl border border-neutral-700 bg-neutral-900 px-3 py-2.5 text-sm hover:border-violet-400/50"><Plus size={17} /> New chat</button>
+      <Link to="/" className="mb-3 flex items-center gap-2 rounded-lg border border-neutral-800 bg-neutral-900 px-3 py-2.5 text-sm text-neutral-200 hover:border-neutral-600"><MessageSquare size={17} /> Back to WireUp</Link>
+      <button onClick={() => { navigate('/assistant'); setDrawer(false); setDraft('') }} className="mb-8 flex w-full items-center gap-2 rounded-lg border border-neutral-800 bg-neutral-900 px-3 py-2.5 text-sm hover:border-neutral-600"><Plus size={17} /> New chat</button>
       <p className="mb-3 text-xs font-medium uppercase tracking-wider text-neutral-500">Your conversations</p>
       <div className="min-h-0 flex-1 overflow-y-auto space-y-1">
         {chats.length === 0 && <p className="px-2 py-4 text-sm leading-6 text-neutral-500">Your chats will appear here after your first message.</p>}
         {[...chats].sort((a, b) => b.updatedAt - a.updatedAt).map(chat => (
           <div key={chat.id} className={`group flex items-center rounded-lg ${id === chat.id ? 'bg-neutral-800' : 'hover:bg-neutral-900'}`}>
-            <Link to={`/chat/${chat.id}`} className="flex min-w-0 flex-1 items-center gap-2 px-2 py-3 text-sm text-neutral-300"><MessageSquare size={15} className="shrink-0 text-neutral-500" /><span className="truncate">{chat.title}</span>{busy === chat.id && <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-violet-400" />}</Link>
+            <Link to={`/chat/${chat.id}`} className="flex min-w-0 flex-1 items-center gap-2 px-2 py-3 text-sm text-neutral-300"><MessageSquare size={15} className="shrink-0 text-neutral-500" /><span className="truncate">{chat.title}</span>{busy === chat.id && <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-neutral-300" />}</Link>
             <button aria-label={`Rename ${chat.title}`} onClick={() => setRename({ id: chat.id, value: chat.title })} className="p-1.5 text-neutral-500 hover:text-white"><Pencil size={13} /></button>
             <button aria-label={`Delete ${chat.title}`} onClick={() => setDeleting(chat.id)} className="mr-1 p-1.5 text-neutral-500 hover:text-red-400"><Trash2 size={13} /></button>
           </div>
@@ -212,36 +217,37 @@ export function ChatApp({ projectId, runtimeToken, embedded = false, initialProm
   )
 
   return (
-    <div className={`dark flex overflow-hidden bg-[#0a0a0a] text-neutral-100 ${embedded ? 'h-full min-h-0' : 'h-svh'}`}>
+    <div className={`dark flex overflow-hidden text-neutral-100 ${embedded ? 'h-full min-h-0 bg-transparent' : 'h-svh bg-[#0a0a0a]'}`}>
       {!embedded && <aside className="z-20 hidden w-64 shrink-0 flex-col border-r border-neutral-800/70 bg-[#101010] p-4 md:flex">{sidebar}</aside>}
       {drawer && <div className="fixed inset-0 z-40 md:hidden"><button aria-label="Close navigation" onClick={() => setDrawer(false)} className="absolute inset-0 bg-black/70" /><aside className="relative flex h-full w-[min(85vw,300px)] flex-col border-r border-neutral-800 bg-[#101010] p-4">{sidebar}</aside></div>}
       <main className="relative isolate flex min-w-0 flex-1 flex-col">
         {!embedded && <div aria-hidden="true" className={`pointer-events-none absolute inset-0 -z-10 ${home ? '' : 'opacity-15'}`}><GradientOrb /></div>}
-        <header className="flex h-16 shrink-0 items-center justify-between border-b border-neutral-800/40 bg-[#0a0a0a]/70 px-4 backdrop-blur-md sm:px-6">
-          <div className="flex min-w-0 items-center gap-3">{!embedded && <button onClick={() => setDrawer(true)} aria-label="Open sidebar" className="rounded-lg p-2 text-neutral-400 hover:text-white md:hidden"><Menu size={20} /></button>}<img src="/wireup-logo.png" alt="" className="size-6 shrink-0 rounded object-contain md:hidden" /><span className="truncate text-sm font-medium">{active?.title || 'WireUp AI'}</span></div>
-          <span className="shrink-0 rounded-full border border-neutral-800 px-3 py-1 text-xs text-neutral-400">{embedded ? <button onClick={() => { setEmbeddedId(undefined); setDraft(''); setRequirements(undefined) }}>New chat</button> : <>{selectedModel.label} <span className="hidden sm:inline">· LangGraph</span></>}</span>
+        <header className={`flex h-12 shrink-0 items-center justify-between gap-3 border-b border-neutral-800/60 px-3 sm:px-4 ${embedded ? 'bg-transparent' : 'bg-[#0a0a0a]/70 backdrop-blur-md'}`}>
+          <div className="flex min-w-0 items-center gap-3">{!embedded && <button onClick={() => setDrawer(true)} aria-label="Open sidebar" className="rounded-lg p-2 text-neutral-400 hover:text-white md:hidden"><Menu size={20} /></button>}{embedded && <img src="/wireup-logo.png" alt="" className="size-5 shrink-0 rounded object-contain" />}<span className="truncate text-[13px] font-medium text-neutral-200">{active?.title || 'WireUp agent'}</span></div>
+          {embedded ? <button onClick={() => { setEmbeddedId(undefined); setDraft(''); setRequirements(undefined) }} className="flex shrink-0 items-center gap-1.5 rounded-md border border-neutral-800 px-2 py-1 text-xs text-neutral-400 hover:border-neutral-600 hover:text-neutral-200"><Plus size={13} /> New chat</button>
+            : <span className="shrink-0 rounded-full border border-neutral-800 px-3 py-1 text-xs text-neutral-400">{selectedModel.label} <span className="hidden sm:inline">· LangGraph</span></span>}
         </header>
         {(warning || connectionError || health && !selectedModel.configured) && <div role="status" className="shrink-0 border-b border-amber-400/10 bg-[#211b11]/95 px-4 py-2 text-center text-xs leading-5 text-amber-200">
-          {warning || connectionError || `Add ${provider === 'nvidia' ? 'NVIDIA_API_KEY' : 'GROQ_API_KEY'} to the project .env file, then retry to enable ${selectedModel.label} replies.`}
+          {warning || connectionError || `Add ${selectedKeyName} to the project .env file, then retry to enable ${selectedModel.label} replies.`}
           <button onClick={() => { setWarning(''); void checkHealth() }} className="ml-3 underline underline-offset-2">Check again</button>
         </div>}
         {id && !active ? <div className="flex flex-1 flex-col items-center justify-center gap-4 p-6 text-center"><MessageSquare className="text-neutral-500" size={32} /><h1 className="text-xl font-semibold">Conversation not found</h1><p className="text-sm text-neutral-400">This chat may have been deleted or saved in another browser.</p><Link to="/assistant" className="rounded-xl bg-white px-4 py-2 text-sm text-black">Start a new chat</Link></div>
           : home && embedded ? <div className="flex min-h-0 flex-1 flex-col justify-end gap-4 p-4"><div className="text-sm leading-6 text-neutral-400"><p className="font-medium text-neutral-200">WireUp hardware agent</p><p>Ask me to read your circuit, edit firmware, connect components, compile, or run the simulator.</p></div><ChatComposer provider={provider} models={models} onProviderChange={changeProvider} value={draft} onChange={setDraft} onSend={send} onStop={() => controller.current?.abort()} busy={!!busy} /></div>
-          : home ? <div className="flex min-h-0 flex-1 flex-col justify-center overflow-y-auto px-4 py-10"><div className="mx-auto w-full max-w-3xl space-y-8"><div className="text-center"><div className="mb-4 text-xs font-medium uppercase tracking-[0.2em] text-violet-300">Your space to think, build, and explore</div><h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">What can I help you ship?</h1><p className="mt-3 text-sm text-neutral-400">A conversation starts with an idea.</p></div><ChatComposer provider={provider} models={models} onProviderChange={changeProvider} value={draft} onChange={setDraft} onSend={send} onStop={() => controller.current?.abort()} busy={!!busy} /><div className="flex flex-wrap justify-center gap-2">{['Help me build a landing page', 'Explain a complex idea', 'Review my code', 'Brainstorm a project'].map(prompt => <button key={prompt} onClick={() => setDraft(prompt)} className="rounded-full border border-neutral-700/70 bg-neutral-900/95 px-4 py-2 text-xs text-neutral-300 hover:border-violet-400/60 hover:text-white">{prompt}</button>)}</div></div></div>
+          : home ? <div className="flex min-h-0 flex-1 flex-col justify-center overflow-y-auto px-4 py-10"><div className="mx-auto w-full max-w-3xl space-y-8"><div className="text-center"><h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">What can I help you build?</h1><p className="mt-3 text-sm text-neutral-400">Describe an idea, paste an error, or pick a starting point below.</p></div><ChatComposer provider={provider} models={models} onProviderChange={changeProvider} value={draft} onChange={setDraft} onSend={send} onStop={() => controller.current?.abort()} busy={!!busy} /><div className="flex flex-wrap justify-center gap-2">{['Help me build a landing page', 'Explain a complex idea', 'Review my code', 'Brainstorm a project'].map(prompt => <button key={prompt} onClick={() => setDraft(prompt)} className="rounded-lg border border-neutral-800 bg-neutral-900/95 px-4 py-2 text-xs text-neutral-300 hover:border-neutral-600 hover:text-white">{prompt}</button>)}</div></div></div>
             : <>
               <div ref={scrollRef} onScroll={event => {
                 const node = event.currentTarget
                 setAtBottom(node.scrollHeight - node.scrollTop - node.clientHeight < 100)
-              }} className="min-h-0 flex-1 overflow-y-auto px-4 py-8 sm:px-6">
-                <div className="mx-auto max-w-3xl space-y-8" role="log" aria-label="Conversation">
+              }} className={`min-h-0 flex-1 overflow-y-auto px-4 sm:px-6 ${embedded ? 'py-4' : 'py-8'}`}>
+                <div className="mx-auto max-w-3xl space-y-6" role="log" aria-label="Conversation">
                   {active!.messages.map((message, index) => <MessageView key={message.id} message={message} onConfirm={confirmRequirements} busy={!!busy} retry={!busy && index === active!.messages.length - 1 && message.role === 'assistant' ? retry : undefined} />)}
                 </div>
               </div>
               {!atBottom && <button onClick={() => setAtBottom(true)} className="absolute bottom-44 right-6 rounded-full border border-neutral-700 bg-neutral-900 p-3 shadow-lg" aria-label="Scroll to latest message"><ArrowDown size={18} /></button>}
-              <div className="shrink-0 bg-gradient-to-t from-[#0a0a0a] via-[#0a0a0a]/95 to-transparent px-4 pb-4 pt-4 sm:px-6"><div className="mx-auto max-w-3xl"><ChatComposer provider={provider} models={models} onProviderChange={changeProvider} value={draft} onChange={setDraft} onSend={send} onStop={() => controller.current?.abort()} busy={!!busy} /><p className="mt-3 text-center text-[11px] text-neutral-500">AI can make mistakes. Check important information.</p></div></div>
+              <div className={`shrink-0 bg-gradient-to-t px-4 pb-3 pt-4 sm:px-6 ${embedded ? 'from-[#17181c] via-[#17181c]/95' : 'from-[#0a0a0a] via-[#0a0a0a]/95'}`}><div className="mx-auto max-w-3xl"><ChatComposer provider={provider} models={models} onProviderChange={changeProvider} value={draft} onChange={setDraft} onSend={send} onStop={() => controller.current?.abort()} busy={!!busy} /><p className="mt-2 text-center text-[10px] text-neutral-600">AI can make mistakes.</p></div></div>
             </>}
       </main>
-      {rename && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4"><form role="dialog" aria-modal="true" aria-labelledby="rename-title" onSubmit={event => { event.preventDefault(); if (!rename.value.trim()) return; setChats(previous => previous.map(chat => chat.id === rename.id ? { ...chat, title: rename.value.trim().slice(0, 80) } : chat)); setRename(null) }} className="w-full max-w-sm rounded-2xl border border-neutral-700 bg-neutral-900 p-6"><h2 id="rename-title" className="mb-4 text-lg font-semibold">Rename conversation</h2><input autoFocus aria-label="Conversation name" value={rename.value} maxLength={80} onChange={event => setRename({ ...rename, value: event.target.value })} className="w-full rounded-lg border border-neutral-600 bg-neutral-950 p-3 text-sm outline-none focus:border-violet-400" /><div className="mt-5 flex justify-end gap-3"><button type="button" onClick={() => setRename(null)} className="px-3 py-2 text-sm text-neutral-400">Cancel</button><button type="submit" disabled={!rename.value.trim()} className="rounded-lg bg-white px-4 py-2 text-sm text-black disabled:opacity-40">Save</button></div></form></div>}
+      {rename && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4"><form role="dialog" aria-modal="true" aria-labelledby="rename-title" onSubmit={event => { event.preventDefault(); if (!rename.value.trim()) return; setChats(previous => previous.map(chat => chat.id === rename.id ? { ...chat, title: rename.value.trim().slice(0, 80) } : chat)); setRename(null) }} className="w-full max-w-sm rounded-2xl border border-neutral-700 bg-neutral-900 p-6"><h2 id="rename-title" className="mb-4 text-lg font-semibold">Rename conversation</h2><input autoFocus aria-label="Conversation name" value={rename.value} maxLength={80} onChange={event => setRename({ ...rename, value: event.target.value })} className="w-full rounded-lg border border-neutral-600 bg-neutral-950 p-3 text-sm outline-none focus:border-neutral-500" /><div className="mt-5 flex justify-end gap-3"><button type="button" onClick={() => setRename(null)} className="px-3 py-2 text-sm text-neutral-400">Cancel</button><button type="submit" disabled={!rename.value.trim()} className="rounded-lg bg-white px-4 py-2 text-sm text-black disabled:opacity-40">Save</button></div></form></div>}
       {deleting && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4"><div role="dialog" aria-modal="true" aria-labelledby="delete-title" className="w-full max-w-sm rounded-2xl border border-neutral-700 bg-neutral-900 p-6"><h2 id="delete-title" className="text-lg font-semibold">Delete conversation?</h2><p className="mt-3 text-sm text-neutral-400">This removes the conversation from this browser and cannot be undone.</p><div className="mt-5 flex justify-end gap-3"><button autoFocus onClick={() => setDeleting(null)} className="px-3 py-2 text-sm text-neutral-400">Cancel</button><button onClick={deleteChat} className="rounded-lg bg-red-500 px-4 py-2 text-sm text-white">Delete conversation</button></div></div></div>}
     </div>
   )
@@ -251,12 +257,12 @@ function MessageView({ message, retry, onConfirm, busy }: { message: Message; re
   const [copied, setCopied] = useState(false)
   const [copyError, setCopyError] = useState('')
   return (
-    <article aria-label={`${message.role === 'user' ? 'You' : 'WireUp'} message`} className={message.role === 'user' ? 'ml-auto max-w-[90%] rounded-2xl border border-neutral-700/60 bg-neutral-800/90 px-5 py-4 sm:max-w-[85%]' : 'min-w-0'}>
-      <div className="mb-2 flex items-center gap-2 text-xs font-medium text-neutral-400">{message.role === 'assistant' && <img src="/wireup-logo.png" alt="" className="size-5 rounded object-contain" />}{message.role === 'user' ? 'You' : 'WireUp'}</div>
+    <article aria-label={`${message.role === 'user' ? 'You' : 'WireUp'} message`} className={message.role === 'user' ? 'ml-auto max-w-[88%] rounded-xl border border-neutral-800 bg-neutral-800/40 px-3.5 py-2.5' : 'min-w-0'}>
+      <div className="mb-1.5 flex items-center gap-2 text-[11px] font-medium text-neutral-500">{message.role === 'assistant' && <img src="/wireup-logo.png" alt="" className="size-4 rounded object-contain" />}{message.role === 'user' ? 'You' : 'WireUp'}</div>
       {message.questions && <ProjectQuestionForm data={message.questions} onConfirm={onConfirm} disabled={busy} />}
       {message.role === 'assistant' && message.blocks?.length ? <AgentActivityFeed blocks={message.blocks} running={message.status === 'streaming'} outcome={message.status === 'streaming' ? undefined : message.status} startedAt={message.startedAt} elapsedMs={message.elapsedMs} /> : null}
-      {message.role === 'user' ? <p className="whitespace-pre-wrap break-words text-sm leading-7">{message.content}</p> : !message.blocks?.length ? <div className="chat-markdown text-sm leading-7"><ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: ({ children, href }) => <a href={href} target="_blank" rel="noopener noreferrer">{children}</a> }}>{message.content}</ReactMarkdown></div> : null}
-      {message.status === 'streaming' && <div role="status" className="mt-2 flex items-center gap-2 text-xs text-neutral-400" aria-label="Generating response"><span className="size-1.5 animate-pulse rounded-full bg-violet-300" /><span>Agent is working. You can stop generation.</span></div>}
+      {message.role === 'user' ? <p className="whitespace-pre-wrap break-words text-sm leading-6">{message.content}</p> : !message.blocks?.length ? <div className="chat-markdown text-sm leading-6"><ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: ({ children, href }) => <a href={href} target="_blank" rel="noopener noreferrer">{children}</a> }}>{message.content}</ReactMarkdown></div> : null}
+      {message.status === 'streaming' && <div role="status" className="mt-2 flex items-center gap-2 text-xs text-neutral-400" aria-label="Generating response"><span className="size-1.5 animate-pulse rounded-full bg-neutral-400" /><span>Agent is working. You can stop generation.</span></div>}
       {message.error && <p role="alert" className="mt-3 rounded-lg border border-red-400/20 bg-red-400/5 p-3 text-sm text-red-300">{message.error}</p>}
       {message.status === 'stopped' && <p className="mt-2 text-xs text-neutral-500">Response stopped.</p>}
       {message.role === 'assistant' && message.status !== 'streaming' && <div className="mt-3 flex items-center gap-3 text-neutral-500">

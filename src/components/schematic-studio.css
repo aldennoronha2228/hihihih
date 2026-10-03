@@ -1,0 +1,106 @@
+.schematic-studio { display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100%; background: #0d0e10; color: #dfe3e6; font-family: var(--font-sans, 'Geist Variable', ui-sans-serif, system-ui, sans-serif); }
+.schematic-studio .schematic-spin { animation: schematic-spin 1.2s linear infinite; }
+@keyframes schematic-spin { to { transform: rotate(360deg); } }
+
+.schematic-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 46px; padding: 0 14px; border-bottom: 1px solid #232527; background: #101113; flex-shrink: 0; }
+.schematic-project-name { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 13px; font-weight: 600; letter-spacing: -.2px; color: #eef0f2; }
+.schematic-toolbar-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.schematic-toolbar-actions button { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border: 0; border-radius: 6px; background: none; color: #b8bec4; font-size: 11.5px; cursor: pointer; white-space: nowrap; }
+.schematic-toolbar-actions button:hover:not(:disabled) { background: #1e2023; color: #eef0f2; }
+.schematic-toolbar-actions button:disabled { opacity: .45; cursor: not-allowed; }
+.schematic-toolbar-actions button.is-active { background: #1c2836; color: #9cc4ef; }
+.schematic-toolbar-actions button.is-good { color: #62c78f; }
+.schematic-toolbar-actions button.is-warn { color: #d9b64a; }
+.schematic-toolbar-actions button.is-bad { color: #e5796b; }
+
+.schematic-columns { display: flex; flex: 1; min-height: 0; }
+.schematic-solve-error { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-bottom: 1px solid #4a2c26; background: #241613; color: #eaa396; font-size: 11.5px; flex-shrink: 0; }
+.schematic-solve-error button { margin-left: auto; padding: 3px 9px; border: 1px solid #5c372f; border-radius: 5px; background: none; color: #eaa396; font-size: 11px; cursor: pointer; }
+.schematic-solve-error button:hover { background: #33201b; }
+.schematic-library { display: flex; flex-direction: column; width: 246px; flex-shrink: 0; border-right: 1px solid #232527; background: #0f1012; }
+.schematic-library-head { display: flex; align-items: center; gap: 8px; min-height: 42px; padding: 0 14px; border-bottom: 1px solid #1d1f21; }
+.schematic-library-head strong { font-size: 12.5px; font-weight: 600; color: #eef0f2; }
+.schematic-library-count { margin-left: auto; min-width: 20px; padding: 2px 6px; border-radius: 999px; background: #1e2023; color: #a7adb4; font-size: 10px; text-align: center; }
+.schematic-library-tabs { display: flex; gap: 4px; padding: 10px 12px 4px; }
+.schematic-library-tabs button { flex: 1; padding: 6px 0; border: 1px solid #2a2c30; border-radius: 6px; background: #16181a; color: #b8bec4; font-size: 11px; cursor: pointer; }
+.schematic-library-tabs button.active { background: #e8eaec; border-color: #e8eaec; color: #131416; font-weight: 550; }
+.schematic-library-search { padding: 8px 12px; }
+.schematic-library-search input { width: 100%; padding: 7px 10px; border: 1px solid #2a2c30; border-radius: 6px; background: #131416; color: #dfe3e6; font: inherit; font-size: 11px; outline: none; }
+.schematic-library-search input:focus-visible { border-color: #4a8fd9; }
+.schematic-library-search input::placeholder { color: #6d747b; }
+.schematic-library-list { flex: 1; min-height: 0; overflow: auto; padding: 2px 8px 12px; }
+.schematic-library-group { margin-top: 6px; }
+.schematic-library-group summary { display: flex; align-items: center; gap: 6px; padding: 7px 6px; list-style: none; cursor: pointer; color: #9aa1a8; font-size: 10px; text-transform: uppercase; letter-spacing: .7px; }
+.schematic-library-group summary::-webkit-details-marker { display: none; }
+.schematic-library-group summary::before { content: '⌄'; font-size: 10px; color: #6d747b; }
+.schematic-library-group:not([open]) summary::before { content: '›'; }
+.schematic-library-group summary span { margin-left: auto; color: #6d747b; }
+.schematic-library-item { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; align-items: center; gap: 8px; width: 100%; padding: 5px 6px; border: 1px solid transparent; border-radius: 7px; background: none; color: inherit; font: inherit; cursor: pointer; text-align: left; }
+.schematic-library-item:hover:not(:disabled) { background: #191b1e; }
+.schematic-library-item:disabled { opacity: .45; cursor: not-allowed; }
+.schematic-library-item.is-selected { border-color: #2c4a6b; background: #14202e; }
+.schematic-library-item.is-selected .schematic-library-name { color: #9cc4ef; }
+.schematic-preview { width: 44px; height: 32px; }
+.schematic-library-name { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 11.5px; color: #d7dbdf; }
+.schematic-library-item small { color: #6d747b; font-size: 9px; white-space: nowrap; }
+.schematic-library-empty { padding: 14px 8px; color: #6d747b; font-size: 11px; line-height: 1.7; }
+
+.schematic-main { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
+.schematic-canvas-row { display: flex; flex: 1; min-height: 0; }
+.schematic-canvas-row > .schematic-canvas { flex: 1; }
+
+.schematic-sheet { display: flex; flex-direction: column; gap: 10px; width: 236px; flex-shrink: 0; margin: 14px; padding: 16px; border: 1px solid #232527; border-radius: 10px; background: #131417; align-self: flex-start; }
+.schematic-sheet h3 { margin: 0; color: #8f9aa4; font-size: 10px; font-weight: 500; text-transform: uppercase; letter-spacing: 1.4px; }
+.schematic-sheet-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; }
+.schematic-sheet-stats span { color: #9aa1a8; font-size: 12px; }
+.schematic-sheet-stats b { margin-right: 6px; color: #eef0f2; font-size: 15px; font-weight: 550; font-variant-numeric: tabular-nums; }
+.schematic-sheet-links { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.schematic-sheet-links button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 7px 8px; border: 1px solid #2a2c30; border-radius: 7px; background: #191b1e; color: #c9cdd2; font-size: 11px; cursor: pointer; }
+.schematic-sheet-links button:hover:not(:disabled) { border-color: #3d4045; color: #eef0f2; }
+.schematic-sheet-links button:disabled { opacity: .4; cursor: not-allowed; }
+.schematic-sheet-note { margin: 0; color: #6d747b; font-size: 10px; line-height: 1.6; }
+
+.schematic-dock { display: flex; flex-direction: column; height: 288px; flex-shrink: 0; border-top: 1px solid #232527; background: #101113; }
+.schematic-dock-tabs { display: flex; align-items: center; gap: 2px; min-height: 38px; padding: 0 8px; border-bottom: 1px solid #1d1f21; }
+.schematic-dock-tabs button { position: relative; display: inline-flex; align-items: center; gap: 6px; height: 38px; padding: 0 12px; border: 0; border-bottom: 2px solid transparent; background: none; color: #9aa1a8; font-size: 11.5px; cursor: pointer; }
+.schematic-dock-tabs button:hover { color: #dfe3e6; }
+.schematic-dock-tabs button.active { color: #eef0f2; border-bottom-color: #4a8fd9; }
+.schematic-dock-tabs button em { font-style: normal; min-width: 15px; padding: 1px 4px; border-radius: 999px; background: #3a2622; color: #e5796b; font-size: 9px; text-align: center; }
+.schematic-dock-close { margin-left: auto !important; border-bottom: 0 !important; }
+.schematic-dock-body { flex: 1; min-height: 0; overflow: auto; }
+.schematic-dock-pane { padding: 12px 16px; }
+.schematic-dock-instrument { height: 100%; overflow: auto; }
+.schematic-dock-instrument .hardware-instruments { border: 0; border-radius: 0; background: transparent; min-height: 0; height: 100%; overflow: auto; }
+.schematic-dock-actions { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.schematic-dock-actions button { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border: 1px solid #2a2c30; border-radius: 6px; background: #191b1e; color: #c9cdd2; font-size: 11px; cursor: pointer; }
+.schematic-dock-actions button:hover:not(:disabled) { border-color: #3d4045; color: #eef0f2; }
+.schematic-dock-actions button:disabled { opacity: .45; cursor: not-allowed; }
+.schematic-dock-meta { color: #6d747b; font-size: 10.5px; }
+.schematic-analysis-table { width: 100%; max-width: 480px; border-collapse: collapse; font-size: 11px; }
+.schematic-analysis-table th { text-align: left; padding: 5px 8px; color: #8f9aa4; font-weight: 500; border-bottom: 1px solid #232527; }
+.schematic-analysis-table td { padding: 4px 8px; border-bottom: 1px solid #191b1d; color: #c9cdd2; font-family: ui-monospace, monospace; }
+.schematic-analysis-table td:last-child { color: #e6c252; }
+.schematic-tune-row { display: flex; align-items: center; gap: 10px; max-width: 560px; padding: 7px 0; border-bottom: 1px solid #191b1d; }
+.schematic-tune-row b { min-width: 64px; font-size: 11.5px; color: #eef0f2; }
+.schematic-tune-row small { min-width: 90px; color: #6d747b; font-size: 10px; }
+.schematic-tune-row label { display: flex; align-items: center; gap: 5px; color: #9aa1a8; font-size: 10px; }
+.schematic-tune-row input { width: 84px; padding: 5px 8px; border: 1px solid #2a2c30; border-radius: 5px; background: #131416; color: #dfe3e6; font: 11px ui-monospace, monospace; outline: none; }
+.schematic-tune-row input:focus-visible { border-color: #4a8fd9; }
+.schematic-tune-row button { margin-left: auto; padding: 5px 10px; border: 1px solid #2a2c30; border-radius: 6px; background: #191b1e; color: #c9cdd2; font-size: 11px; cursor: pointer; }
+.schematic-tune-row button:hover:not(:disabled) { border-color: #3d4045; }
+.schematic-rule-row { display: flex; align-items: flex-start; gap: 8px; width: 100%; max-width: 720px; padding: 7px 8px; margin: 0 0 2px; border: 0; border-radius: 6px; background: none; color: #b8bec4; font-size: 11.5px; line-height: 1.5; cursor: pointer; text-align: left; }
+.schematic-rule-row:hover { background: #191b1e; }
+.schematic-rule-row.is-error { color: #e5796b; }
+.schematic-rule-row.is-error span { color: #d7dbdf; }
+.schematic-rule-row.is-warning svg { color: #d9b64a; }
+.schematic-rule-row.is-info svg { color: #6d747b; }
+.schematic-rule-spice { margin-top: 8px; }
+.schematic-diag { margin: 3px 0; font-size: 11px; line-height: 1.5; }
+.schematic-diag.is-error { color: #e5796b; }
+.schematic-diag.is-warning { color: #d9b64a; }
+.schematic-diag.is-info { color: #8f9aa4; }
+.schematic-serial { margin: 0; max-height: 200px; overflow: auto; padding: 10px; border: 1px solid #232527; border-radius: 7px; background: #0c0d0f; color: #9fd0a4; font: 11px/1.7 ui-monospace, monospace; white-space: pre-wrap; }
+.schematic-dock-empty { color: #6d747b; font-size: 11.5px; line-height: 1.7; }
+
+@media (max-width: 1100px) { .schematic-sheet { display: none; } }
+@media (max-width: 860px) { .schematic-library { width: 200px; } .schematic-toolbar-actions button span, .schematic-toolbar-actions button { font-size: 10.5px; padding: 6px 7px; } }

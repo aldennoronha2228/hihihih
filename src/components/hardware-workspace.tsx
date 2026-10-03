@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { ReactNode } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactNode } from 'react'
+import { Link, useParams } from 'react-router-dom'
 import { ArrowLeft, Check, ChevronDown, ChevronRight, CircuitBoard, Code2, Cpu, FolderOpen, LoaderCircle, Maximize, Minus, Play, Plus, RefreshCw, Save, Search, Square, Terminal, Trash2, Undo2, Waves, Wrench, X, Zap } from 'lucide-react'
 import { ComponentRegistry } from '../../vendor/velxio/frontend/src/services/ComponentRegistry'
 import { artifactIsCurrent, catalogPins, catalogType, hardwareApi, HardwareApiError, isHardwareProject } from '../lib/hardware'
-import type { CatalogComponent, CompilerResult, Firmware, HardwareCommand, HardwareComponent, HardwarePin, HardwareProject, HardwareProjectSummary, WireEndpoint } from '../lib/hardware'
+import type { CatalogComponent, CompilerResult, Firmware, HardwareCommand, HardwareComponent, HardwarePin, HardwareProject, WireEndpoint } from '../lib/hardware'
 import { HardwareRuntime } from '../hardware/runtime'
 import type { RuntimeResults } from '../hardware/runtime'
 import { HardwarePart } from '../hardware/part'
@@ -24,6 +24,21 @@ export type HardwareWorkspaceProps = {
 const categoryNames: Record<string, string> = {
   boards: 'Microcontrollers', sensors: 'Sensors', displays: 'Displays', input: 'Inputs', output: 'Outputs',
   passive: 'Passives', analog: 'Analog', motors: 'Motors', communication: 'Communication', logic: 'Logic', other: 'Other components',
+}
+
+type WorkspaceLayout = { sidebar: number; agent: number; dock: number }
+const layoutKey = 'wireup.workspace.layout.v1'
+const defaultLayout: WorkspaceLayout = { sidebar: 232, agent: 340, dock: 216 }
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
+const readLayout = (): WorkspaceLayout => {
+  try {
+    const saved = JSON.parse(localStorage.getItem(layoutKey) || '') as Partial<WorkspaceLayout>
+    return {
+      sidebar: clamp(Number(saved.sidebar) || defaultLayout.sidebar, 180, 480),
+      agent: clamp(Number(saved.agent) || defaultLayout.agent, 260, 680),
+      dock: clamp(Number(saved.dock) || defaultLayout.dock, 96, 480),
+    }
+  } catch { return defaultLayout }
 }
 
 const generatedPreviews = new Set(Object.keys(import.meta.glob('/public/component-previews/*.png')).map(path => path.split('/').pop()!.replace('.png', '')))
@@ -60,15 +75,14 @@ function CatalogThumbnail({ type, name, thumbnail }: { type: string; name: strin
 
 export function HardwareWorkspace({ chatSlot, children, onProjectChange, schematicSlot, oscilloscopeSlot, analysisSlot, onRuntimeChange, onResultsChange, view, onViewChange }: HardwareWorkspaceProps) {
   const { projectId } = useParams<{ projectId: string }>()
-  const navigate = useNavigate()
-  const [projects, setProjects] = useState<HardwareProjectSummary[]>([])
+  const [loadAttempt, setLoadAttempt] = useState(0)
+  const [loadError, setLoadError] = useState('')
   const [project, setProject] = useState<HardwareProject | null>(null)
   const projectRef = useRef<HardwareProject | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState('')
   const [notice, setNotice] = useState('')
-  const [name, setName] = useState('Untitled circuit')
   const [source, setSource] = useState('')
   const sourceRef = useRef('')
   const savedSource = useRef('')
@@ -105,7 +119,37 @@ export function HardwareWorkspace({ chatSlot, children, onProjectChange, schemat
   const [position, setPosition] = useState({ x: 0, y: 0, rotation: 0 })
   const [zoom, setZoom] = useState(1)
   const [session, setSession] = useState(0)
+  const [layout, setLayout] = useState<WorkspaceLayout>(readLayout)
+  const [resizing, setResizing] = useState<'sidebar' | 'agent' | 'dock' | null>(null)
+  useEffect(() => { try { localStorage.setItem(layoutKey, JSON.stringify(layout)) } catch { /* Layout resets if storage is unavailable. */ } }, [layout])
   const busyRef = useRef(false)
+
+  // Drag a panel edge to resize it; sizes clamp so the canvas always keeps room.
+  const startResize = (kind: 'sidebar' | 'agent' | 'dock') => (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return
+    event.preventDefault()
+    const handle = event.currentTarget
+    handle.setPointerCapture(event.pointerId)
+    const horizontal = kind !== 'dock'
+    const origin = horizontal ? event.clientX : event.clientY
+    const start = layout[kind]
+    setResizing(kind)
+    document.body.classList.add('hw-resizing', horizontal ? 'hw-resizing-col' : 'hw-resizing-row')
+    const move = (moveEvent: PointerEvent) => {
+      const delta = horizontal ? moveEvent.clientX - origin : moveEvent.clientY - origin
+      setLayout(previous => {
+        if (kind === 'sidebar') return { ...previous, sidebar: clamp(start + delta, 180, Math.max(200, Math.min(480, window.innerWidth - previous.agent - 320))) }
+        if (kind === 'agent') return { ...previous, agent: clamp(start - delta, 260, Math.max(280, Math.min(680, window.innerWidth - previous.sidebar - 320))) }
+        return { ...previous, dock: clamp(start - delta, 96, Math.max(120, Math.min(480, Math.round(window.innerHeight * .7)))) }
+      })
+    }
+    const finish = () => {
+      handle.removeEventListener('pointermove', move); handle.removeEventListener('pointerup', finish); handle.removeEventListener('pointercancel', finish)
+      document.body.classList.remove('hw-resizing', 'hw-resizing-col', 'hw-resizing-row')
+      setResizing(null)
+    }
+    handle.addEventListener('pointermove', move); handle.addEventListener('pointerup', finish); handle.addEventListener('pointercancel', finish)
+  }
 
   const acceptProject = useCallback((next: HardwareProject, forceSource = false) => {
     const previous = projectRef.current
@@ -124,16 +168,18 @@ export function HardwareWorkspace({ chatSlot, children, onProjectChange, schemat
 
   useEffect(() => {
     let active = true
-    setLoading(true); setError(''); setProject(null); projectRef.current = null
+    setLoading(true); setLoadError(''); setError(''); setProject(null); projectRef.current = null
     setSelected(''); setPins({}); setResults(null); setWireStart(null)
-    const load = projectId ? hardwareApi.getProject(projectId) : hardwareApi.listProjects()
-    void load.then(value => {
-      if (!active) return
-      if (isHardwareProject(value)) acceptProject(value, true)
-      else setProjects(value.projects)
-    }).catch(error => { if (active) setError(error.message) }).finally(() => { if (active) setLoading(false) })
+    if (!projectId) {
+      setLoadError('No project was selected. Open a prototype from the home page.')
+      setLoading(false)
+      return
+    }
+    void hardwareApi.getProject(projectId).then(value => {
+      if (active) acceptProject(value, true)
+    }).catch(error => { if (active) setLoadError(error.message) }).finally(() => { if (active) setLoading(false) })
     return () => { active = false }
-  }, [projectId, acceptProject])
+  }, [projectId, acceptProject, loadAttempt])
 
   useEffect(() => { onProjectChange?.(project) }, [project, onProjectChange])
 
@@ -272,6 +318,12 @@ export function HardwareWorkspace({ chatSlot, children, onProjectChange, schemat
     if (!sketchOpen && dialog?.open) dialog.close()
   }, [sketchOpen])
   useEffect(() => {
+    // The schematic studio's Sketch button shares this firmware editor.
+    const open = () => setSketchOpen(true)
+    window.addEventListener('wireup:open-sketch', open)
+    return () => window.removeEventListener('wireup:open-sketch', open)
+  }, [])
+  useEffect(() => {
     const dialog = scopeDialog.current
     if (scopeOpen && dialog && !dialog.open) dialog.showModal()
     if (!scopeOpen && dialog?.open) dialog.close()
@@ -287,21 +339,13 @@ export function HardwareWorkspace({ chatSlot, children, onProjectChange, schemat
     </header>
     {error && <div role="alert" className="hw-alert"><span>{error}</span>{dirty && project && <button onClick={() => { acceptProject(project, true); setError(''); setNotice('Loaded server firmware. Unsaved editor changes discarded.') }}>Load server firmware</button>}<button onClick={() => setError('')} aria-label="Dismiss error">×</button></div>}
     {notice && <div role="status" className="hw-notice">{notice}</div>}
-    {loading ? <div className="hw-loading"><LoaderCircle className="hw-spin" /> Loading workspace…</div> : !project ? <section className="hw-projects">
-      <div className="hw-eyebrow"><CircuitBoard size={16} /> YOUR HARDWARE WORKSPACE</div>
-      <h1>Build something real.</h1><p>Design circuits, write firmware, and run a real Arduino emulator. Your projects are saved on the server.</p>
-      <form className="hw-create" onSubmit={event => { event.preventDefault(); void perform('Creating project', async () => { const created = await hardwareApi.createProject(name.trim() || 'Untitled circuit'); navigate(`/project/${created.id}`) }) }}>
-        <input aria-label="Project name" value={name} onChange={event => setName(event.target.value)} maxLength={120} /><button className="hw-primary" disabled={!!busy}><Plus size={16} /> New Uno project</button>
-      </form>
-      <div className="hw-project-grid">{projects.map(item => <Link key={item.id} to={`/project/${item.id}`} className="hw-project-card"><Cpu size={24} /><h2>{item.name}</h2><p>Arduino Uno · Revision {item.revision}</p><span>Open workspace <ChevronRight size={14} /></span></Link>)}</div>
-      {!projects.length && !error && <div className="hw-empty"><CircuitBoard size={32} /><h2>Your workbench is ready.</h2><p>Create an Arduino Uno project to start with Blink.</p></div>}
-    </section> : <>
+    {loading ? <div className="hw-loading" role="status"><LoaderCircle className="hw-spin" /> Loading workspace…</div> : !project ? <section className="flex min-h-0 flex-1 items-center justify-center p-6"><div className="w-full max-w-md rounded-xl border border-neutral-800 bg-neutral-900 p-6"><h1 className="text-lg font-semibold">Unable to open this project</h1><p role="alert" className="mt-3 text-sm leading-6 text-neutral-400">{loadError || 'The project could not be loaded.'}</p><p className="mt-3 text-xs leading-5 text-neutral-500">If the hardware service is unavailable, start the backend and retry. Project creation remains on the WireUp home page.</p><div className="mt-5 flex flex-wrap gap-3">{projectId && <button type="button" onClick={() => setLoadAttempt(value => value + 1)} className="rounded-lg bg-[#4a8fd9] px-4 py-2 text-sm font-medium text-white">Retry loading</button>}<Link to="/" className="rounded-lg border border-neutral-700 px-4 py-2 text-sm">Back to home</Link><Link to="/projects" className="rounded-lg border border-neutral-700 px-4 py-2 text-sm">All projects</Link></div></div></section> : <>
       <nav className="hw-toolbar" aria-label="Hardware actions">
         <div className="hw-view-tabs" role="tablist" aria-label="Design view"><button role="tab" aria-selected={activeView === 'circuit'} onClick={() => changeView('circuit')}><CircuitBoard size={15} /> Circuit</button><button role="tab" aria-selected={activeView === 'schematic'} onClick={() => changeView('schematic')}><Zap size={15} /> Schematic</button></div>
         <div className="hw-actions">
-          {analysisSlot}
-          <button className="hw-sketch-button" aria-haspopup="dialog" onClick={() => { setTab('circuit'); setSketchOpen(true) }}><Code2 size={15} /><span>Sketch</span>{dirty && <i className="hw-unsaved" />}</button>
-          <button className="hw-scope-button" aria-haspopup="dialog" onClick={() => { setTab('circuit'); setScopeOpen(true) }}><Waves size={15} /><span>Oscilloscope</span></button>
+          {activeView === 'circuit' && analysisSlot}
+          {activeView === 'circuit' && <button className="hw-sketch-button" aria-haspopup="dialog" onClick={() => { setTab('circuit'); setSketchOpen(true) }}><Code2 size={15} /><span>Sketch</span>{dirty && <i className="hw-unsaved" />}</button>}
+          {activeView === 'circuit' && <button className="hw-scope-button" aria-haspopup="dialog" onClick={() => { setTab('circuit'); setScopeOpen(true) }}><Waves size={15} /><span>Oscilloscope</span></button>}
           <button aria-label="Save" disabled={!!busy || !!results?.running} onClick={() => void perform('Saving firmware', async () => { await saveSource(); setNotice('Firmware saved to the canonical project.') })}><Save size={15} /><span>Save</span>{dirty && <i className="hw-unsaved" />}</button>
           <button aria-label="Undo last change" disabled={mutationDisabled || !project.history.length} onClick={() => void perform('Undoing', async () => { await command('undo', {}, true) })}><Undo2 size={15} /></button>
           <button disabled={!!busy || !!results?.running || project.board === 'unselected' || knownCatalog.find(item => catalogType(item) === project.board)?.compile === false} onClick={() => void perform('Compiling firmware', async () => { await saveSource(); const value = await command('compile_firmware', {}, true) as CompilerResult; setCompiler(value); setDock('compiler'); setConsoleOpen(true); setSketchOpen(false); setTab('circuit'); if (projectRef.current) acceptProject(await hardwareApi.getProject(projectRef.current.id)); setNotice(value.status === 'simulation_ready' ? 'Firmware compiled. Ready for browser simulation.' : 'Firmware compiled, but this board needs a native runtime to simulate. Review diagnostics below.') })}><Wrench size={15} /><span>{busy === 'Compiling firmware' ? 'Compiling…' : 'Compile'}</span></button>
@@ -310,7 +354,9 @@ export function HardwareWorkspace({ chatSlot, children, onProjectChange, schemat
       </nav>
       {!results?.running && runBlocker && <div role="status" className="hw-notice">{runBlocker}{connection !== 'Connected' && project?.board !== 'unselected' && selectedBoard?.simulation !== 'unavailable' && <button className="ml-3 underline" onClick={() => setSession(value => value + 1)}>Reconnect runtime</button>}</div>}
       <nav className="hw-mobile-tabs" aria-label="Workspace panels">{(['circuit', 'parts', 'agent'] as const).map(value => <button key={value} className={tab === value ? 'active' : ''} onClick={() => setTab(value)}>{value === 'circuit' ? 'Canvas' : value === 'parts' ? 'Parts' : 'Agent'}</button>)}</nav>
-      <div className="hw-workbench">
+      <div className={`hw-workbench${activeView === 'schematic' ? ' is-schematic' : ''}`} style={{ '--hw-sidebar': `${layout.sidebar}px`, '--hw-agent': `${layout.agent}px` } as CSSProperties}>
+        <div className="hw-resizer hw-resizer-col" data-side="left" data-active={resizing === 'sidebar'} role="separator" aria-orientation="vertical" aria-label="Resize components panel" onPointerDown={startResize('sidebar')} />
+        <div className="hw-resizer hw-resizer-col" data-side="right" data-active={resizing === 'agent'} role="separator" aria-orientation="vertical" aria-label="Resize agent panel" onPointerDown={startResize('agent')} />
         <aside className="hw-sidebar hw-parts-panel">
           <div className="hw-panel-heading"><Cpu size={15} /> Components <span>{project.components.length}</span></div>
           <label className="hw-search"><Search size={14} /><input aria-label="Search components" placeholder="Search catalog…" value={query} onChange={event => setQuery(event.target.value)} /></label>
@@ -361,14 +407,14 @@ export function HardwareWorkspace({ chatSlot, children, onProjectChange, schemat
           </div>
           <dialog ref={sketchDialog} className="hw-sketch-dialog" aria-label="Sketch firmware editor" onCancel={() => setSketchOpen(false)} onClose={() => setSketchOpen(false)}><section className="hw-firmware-panel"><div className="hw-panel-heading"><Code2 size={15} /> {project.firmware.filename}<span>{dirty ? 'Unsaved edits' : `Saved · r${project.firmware.revision}`}</span><button aria-label="Close Sketch" onClick={() => setSketchOpen(false)}><X size={16} /></button></div><div className="hw-code-editor"><div aria-hidden="true" className="hw-line-numbers">{source.split('\n').map((_, index) => <div key={index}>{index + 1}</div>)}</div><textarea aria-label="Firmware source" value={source} spellCheck={false} disabled={!!results?.running} onChange={event => { if (sourceRef.current === savedSource.current) draftRevision.current = projectRef.current?.revision ?? null; setSource(event.target.value); sourceRef.current = event.target.value }} onKeyDown={event => { if (event.key === 'Tab') { event.preventDefault(); const start = event.currentTarget.selectionStart; const end = event.currentTarget.selectionEnd; const next = source.slice(0, start) + '  ' + source.slice(end); if (sourceRef.current === savedSource.current) draftRevision.current = projectRef.current?.revision ?? null; setSource(next); sourceRef.current = next; const textarea = event.currentTarget; requestAnimationFrame(() => { textarea.setSelectionRange(start + 2, start + 2) }) } }} /></div><footer className="hw-sketch-footer"><span>Arduino C++ · Canonical server firmware</span><button aria-label="Save sketch" disabled={!!busy || !!results?.running} onClick={() => void perform('Saving firmware', async () => { await saveSource(); setSketchOpen(false); setTab('circuit'); setNotice('Firmware saved to the canonical project.') })}><Save size={14} /> Save sketch</button></footer></section></dialog>
           <dialog ref={scopeDialog} className="hw-scope-dialog" aria-label="Oscilloscope" onCancel={() => setScopeOpen(false)} onClose={() => setScopeOpen(false)}><div className="hw-panel-heading"><Waves size={16} /> Oscilloscope<button aria-label="Close Oscilloscope" onClick={() => setScopeOpen(false)}><X size={16} /></button></div>{oscilloscopeSlot ?? <div className="hw-schematic-empty"><Waves size={30} /><h2>Runtime instruments</h2><p>The host application provides the oscilloscope instrument. Real GPIO snapshots are available in Results.</p></div>}</dialog>
-          <section className="hw-dock" data-open={consoleOpen}><nav aria-label="Output panels">{(['compiler', 'serial', 'results', 'tools'] as const).map(value => <button key={value} aria-expanded={consoleOpen && dock === value} className={consoleOpen && dock === value ? 'active' : ''} onClick={() => { setDock(value); setConsoleOpen(!consoleOpen || dock !== value) }}>{value === 'serial' ? <Terminal size={13} /> : value === 'compiler' ? <Wrench size={13} /> : value === 'results' ? <Zap size={13} /> : <Cpu size={13} />}{value === 'compiler' ? 'Compiler' : value === 'serial' ? 'Serial monitor' : value === 'results' ? 'Results' : 'Tools'}</button>)}<span className="hw-dock-status">{busy && <LoaderCircle size={12} className="hw-spin" />}{busy || compiler?.status?.replaceAll('_', ' ') || 'Not compiled'}</span><button className="hw-console-collapse" aria-label={consoleOpen ? 'Collapse console' : 'Expand console'} aria-expanded={consoleOpen} onClick={() => setConsoleOpen(!consoleOpen)}><ChevronDown size={14} /></button></nav>
+          <section className="hw-dock" data-open={consoleOpen} style={{ '--hw-dock': `${layout.dock}px` } as CSSProperties}>{consoleOpen && <div className="hw-resizer hw-resizer-row" data-active={resizing === 'dock'} role="separator" aria-orientation="horizontal" aria-label="Resize console height" onPointerDown={startResize('dock')} />}<nav aria-label="Output panels">{(['compiler', 'serial', 'results', 'tools'] as const).map(value => <button key={value} aria-expanded={consoleOpen && dock === value} className={consoleOpen && dock === value ? 'active' : ''} onClick={() => { setDock(value); setConsoleOpen(!consoleOpen || dock !== value) }}>{value === 'serial' ? <Terminal size={13} /> : value === 'compiler' ? <Wrench size={13} /> : value === 'results' ? <Zap size={13} /> : <Cpu size={13} />}{value === 'compiler' ? 'Compiler' : value === 'serial' ? 'Serial monitor' : value === 'results' ? 'Results' : 'Tools'}</button>)}<span className="hw-dock-status">{busy && <LoaderCircle size={12} className="hw-spin" />}{busy || compiler?.status?.replaceAll('_', ' ') || 'Not compiled'}</span><button className="hw-console-collapse" aria-label={consoleOpen ? 'Collapse console' : 'Expand console'} aria-expanded={consoleOpen} onClick={() => setConsoleOpen(!consoleOpen)}><ChevronDown size={14} /></button></nav>
             {consoleOpen && dock === 'compiler' && <div className="hw-dock-body"><div className="hw-output-actions"><button disabled={!!busy} onClick={() => void perform('Reading compiler errors', async () => { setCompiler(await command('read_compiler_errors') as CompilerResult) })}><RefreshCw size={12} /> Read diagnostics</button>{compiler?.artifact?.url && <a href={compiler.artifact.url} download>Download HEX</a>}</div><pre>{compiler ? [compiler.stdout, compiler.stderr, ...(compiler.errors ?? []).map(value => typeof value === 'string' ? value : JSON.stringify(value))].filter(Boolean).join('\n') || compiler.status : 'Ready when you are. Compile your sketch to create real Arduino firmware.\nCompilation does not start the simulator.'}</pre></div>}
             {consoleOpen && dock === 'serial' && <div className="hw-dock-body"><pre aria-label="Serial output">{results?.serial || 'No serial output yet. Your sketch must call Serial.begin() and Serial.print().'}</pre><form className="hw-serial-send" onSubmit={event => { event.preventDefault(); try { runtime?.sendSerial(serialInput + '\n'); setSerialInput('') } catch (error) { setError((error as Error).message) } }}><input aria-label="Serial input" value={serialInput} placeholder="Send to UART…" onChange={event => setSerialInput(event.target.value)} /><button disabled={!results?.running || !serialInput}>Send</button></form></div>}
             {consoleOpen && dock === 'results' && <div className="hw-dock-body"><div className="hw-output-actions"><button disabled={!!busy || connection !== 'Connected'} onClick={() => void perform('Reading simulation results', async () => { const value = await command('read_simulation_results') as { result: RuntimeResults }; if (value.result) setResults(value.result) })}><RefreshCw size={12} /> Read runtime</button><span>{results?.cycles.toLocaleString() ?? '0'} cycles · {(results?.simulated_ms ?? 0).toFixed(1)} ms simulated</span></div><div className="hw-pin-results">{Object.entries(results?.pins ?? {}).map(([pin, value]) => <span key={pin} data-level={value.level === true ? 'high' : value.level === false ? 'low' : 'floating'}>{pin}<b>{value.level === null ? '—' : value.level ? 'HIGH' : 'LOW'}</b></span>)}</div><p className="hw-runtime-limit">Real Velxio AVR CPU / UART / GPIO. LED continuity and rail-connected buttons are supported; other parts are placement-only. No analog-current measurements are claimed.</p></div>}
             {consoleOpen && dock === 'tools' && <div className="hw-dock-body"><div className="hw-manual-tools"><button disabled={!!busy} onClick={() => void perform('Reading project', async () => { const value = await command('read_project'); setToolOutput(JSON.stringify(value, null, 2)) })}>Read project</button><button disabled={!!busy} onClick={() => void perform('Reading firmware', async () => { const value = await command('read_firmware') as Firmware; setToolOutput(JSON.stringify(value, null, 2)) })}>Read firmware</button><button disabled={!!busy || !!results?.running} onClick={() => void perform('Generating firmware', async () => { const current = projectRef.current!; const next = await hardwareApi.command<HardwareProject>(current, 'generate_firmware', { source: sourceRef.current, expected_revision: dirty ? draftRevision.current ?? current.revision : current.revision }); acceptProject(next, true); setNotice('Current editor source stored through generate_firmware.') })}>Generate from editor</button><button disabled={!!busy} onClick={() => void perform('Searching components', async () => { const value = await command('search_components', { query, limit: 50 }); setToolOutput(JSON.stringify(value, null, 2)) })}>Search catalog</button></div><form className="hw-calculator" onSubmit={event => { event.preventDefault(); void perform('Calculating', async () => { const value = await command('calculator', { expression }); setToolOutput(JSON.stringify(value, null, 2)) }) }}><input aria-label="Calculator expression" value={expression} onChange={event => setExpression(event.target.value)} placeholder="(5 - 2) / 0.02" /><button disabled={!!busy || !expression}>Calculate</button></form><pre aria-label="Tool result">{toolOutput || 'All manual tools use the same canonical backend service as the agent.'}</pre></div>}
           </section>
         </section>
-        <aside className="hw-agent-panel"><div className="hw-panel-heading"><Zap size={15} /> WireUp agent <span className="hw-chip">PROJECT CONTEXT</span></div>{agent ?? <div className="hw-agent-empty"><div className="hw-agent-symbol"><Zap size={24} /></div><h2>A collaborator for your circuit.</h2><p>Ask the project agent to add parts, write firmware, and inspect the real compiler and simulator.</p><div className="hw-agent-context"><Cpu size={14} /> {project.name}<small>Canonical project · revision {project.revision}</small></div><p className="hw-muted">The agent panel is supplied by the host application. Manual tools remain available below the editor.</p></div>}</aside>
+        <aside className="hw-agent-panel">{!agent && <div className="hw-panel-heading"><Zap size={15} /> WireUp agent</div>}{agent ?? <div className="hw-agent-empty"><div className="hw-agent-symbol"><Zap size={24} /></div><h2>A collaborator for your circuit.</h2><p>Ask the project agent to add parts, write firmware, and inspect the real compiler and simulator.</p><div className="hw-agent-context"><Cpu size={14} /> {project.name}<small>Canonical project · revision {project.revision}</small></div><p className="hw-muted">The agent panel is supplied by the host application. Manual tools remain available below the editor.</p></div>}</aside>
       </div>
       <footer className="hw-statusbar"><span className={connection === 'Connected' ? 'hw-connected' : ''}><i />Runtime: {connection}</span>{connection !== 'Connected' && <button onClick={() => setSession(value => value + 1)} disabled={!!busy}>Reconnect</button>}<span>Project r{project.revision}</span><span>{dirty ? 'Editor has unsaved changes' : 'Server saved'}</span><span className="hw-status-engine">Velxio · AVR8 · Open source</span></footer>
     </>}

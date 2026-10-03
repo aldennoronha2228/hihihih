@@ -3,11 +3,11 @@ from contextlib import aclosing
 import time
 
 
-async def stream_plain_chat(model, history):
+async def stream_plain_chat(model, history, timeout_seconds=30):
     started = time.perf_counter()
     emitted = False
     try:
-        async with asyncio.timeout(30):
+        async with asyncio.timeout(timeout_seconds):
             async with aclosing(model.astream(history)) as chunks:
                 async for chunk in chunks:
                     text = chunk.content if isinstance(chunk.content, str) else ''.join(block.get('text', '') for block in chunk.content if isinstance(block, dict) and block.get('type') == 'text')

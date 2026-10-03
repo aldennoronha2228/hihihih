@@ -102,7 +102,7 @@ def test_greeting_has_no_persistent_model_row(service):
     assert events[-1]['modelCalls'] == 1
     assert service.calls == []
     assert {item.name for item in model.tools} == set(agent.TOOL_NAMES)
-    assert len(model.tools) == 17
+    assert len(model.tools) == len(agent.TOOL_NAMES)
     assert all('project_id' not in item.args and 'runtime_token' not in item.args for item in model.tools)
     assert model.histories[0][0].type == 'system'
     assert all(json.dumps(event) for event in events)
@@ -305,7 +305,7 @@ def test_actual_groq_binding_disables_transport_retries(monkeypatch):
     monkeypatch.setattr(ChatGroq, 'astream', astream)
     events = collect(model)
     assert events[-1]['status'] == 'success'
-    assert len(captured['tools']) == 17
+    assert len(captured['tools']) == len(agent.TOOL_NAMES)
     assert captured['retries'] == captured['model_retries'] == 0
     assert captured['reasoning'] is True
     assert model.max_retries == model.async_client._client.max_retries == 2
@@ -471,7 +471,7 @@ def test_confirmed_answers_are_context_and_resume_actual_mutation(service, prefi
         [AIMessageChunk(content='Added the LED.')],
     ])
     events = collect(model, project_id='current', history=[HumanMessage(content=content)], **kwargs)
-    assert len(model.tools) == 17
+    assert len(model.tools) == len(agent.TOOL_NAMES)
     assert [call[1] for call in service.calls] == ['read_project', 'add_component']
     assert service.calls[-1][2]['expected_revision'] == 4
     assert not any(item['type'] == 'questions' for item in events)

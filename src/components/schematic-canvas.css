@@ -1,39 +1,64 @@
-.schematic-canvas { font-family: var(--font-sans, ui-sans-serif, system-ui, sans-serif); display: flex; flex-direction: column; min-width: 0; min-height: 360px; height: 100%; color: #dce5ec; background: #10171e; border: 1px solid #2b3945; border-radius: 12px; overflow: hidden; }
-.schematic-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 18px; background: #18222c; border-bottom: 1px solid #2b3945; }
-.schematic-toolbar > div { display: flex; flex-direction: column; gap: 4px; }
-.schematic-toolbar strong { color: #edf5fa; font-size: 14px; }
-.schematic-toolbar span, .schematic-help { font-size: 11px; color: #a4b5c3; }
-.schematic-toolbar .schematic-status { border: 1px solid #485362; border-radius: 20px; padding: 5px 9px; color: #d4dde5; white-space: nowrap; }
-.schematic-toolbar .is-solved { border-color: #377d66; color: #8ee4bc; }
-.schematic-help { padding: 9px 18px; border-bottom: 1px solid #23303b; }
-.schematic-viewport { flex: 1; min-height: 300px; overflow: auto; }
-.schematic-viewport > svg { display: block; width: 100%; min-width: 640px; height: 100%; min-height: 360px; }
-.schematic-wire-halo { fill: none; stroke: #10171e; stroke-width: 7; }
-.schematic-wire { fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
-.schematic-symbol { fill: none; stroke: #e3edf5; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
-.schematic-symbol circle { fill: #16212b; }
-.schematic-unsupported { stroke: #7d8fa0; stroke-dasharray: 4 3; }
-.schematic-unsupported text { fill: #90a5b6; stroke: none; font-size: 11px; }
-.schematic-part-hit { fill: #10171e; fill-opacity: .12; stroke: transparent; stroke-width: 1.5; }
+.schematic-canvas { display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100%; color: #dfe3e6; background: #0d0e10; font-family: var(--font-sans, 'Geist Variable', ui-sans-serif, system-ui, sans-serif); }
+.schematic-stage { position: relative; flex: 1; min-height: 0; overflow: hidden; }
+.schematic-stage.is-probing { cursor: crosshair; }
+.schematic-viewport { position: absolute; inset: 0; overflow: auto; }
+.schematic-viewport > svg { display: block; }
+.schematic-grid-dot { fill: #232527; }
+
+.schematic-wire-halo { fill: none; stroke: #0d0e10; stroke-width: 8; }
+.schematic-wire { fill: none; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.schematic-wire-group { cursor: pointer; }
+.schematic-junction { fill: #d9b64a; stroke: #0d0e10; stroke-width: 1.5; }
+.schematic-netlabel { fill: #8f9aa4; font-size: 9px; font-family: ui-monospace, monospace; paint-order: stroke; stroke: #0d0e10; stroke-width: 3.5px; stroke-linejoin: round; }
+.schematic-voltage { fill: #6aa9ff; font-size: 9px; font-family: ui-monospace, monospace; paint-order: stroke; stroke: #0d0e10; stroke-width: 3.5px; stroke-linejoin: round; }
+
+.schematic-body .schematic-body-rect { fill: #101214; stroke: #e4e6e8; stroke-width: 1.6; }
+.schematic-body .schematic-body-rect.is-bare { stroke-dasharray: 5 4; stroke: #6f757b; }
+.schematic-body .schematic-body-lead, .schematic-lead { stroke: #e4e6e8; stroke-width: 1.6; stroke-linecap: round; }
+.schematic-body .schematic-symbol { fill: none; stroke: #e4e6e8; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.schematic-pin-label { fill: #b7bcc2; font-size: 8.5px; paint-order: stroke; stroke: #101214; stroke-width: 3px; stroke-linejoin: round; }
+.schematic-part-title { fill: #e8eaec; font-size: 10.5px; font-weight: 550; paint-order: stroke; stroke: #0d0e10; stroke-width: 3.5px; stroke-linejoin: round; }
+.schematic-part-id { fill: #9aa1a8; font-size: 9px; paint-order: stroke; stroke: #0d0e10; stroke-width: 3.5px; stroke-linejoin: round; }
+.schematic-part-value { fill: #8f9aa4; font-size: 9px; paint-order: stroke; stroke: #0d0e10; stroke-width: 3.5px; stroke-linejoin: round; }
+.schematic-part.is-selected .schematic-body-rect { stroke: #4a8fd9; }
+.schematic-part.is-selected .schematic-part-title { fill: #9cc4ef; }
 .schematic-part [role=button] { cursor: pointer; outline: none; }
 .schematic-part.is-movable > [role=button] { cursor: grab; touch-action: none; }
 .schematic-part.is-movable > [role=button]:active { cursor: grabbing; }
-.schematic-part > [role=button]:hover .schematic-part-hit, .schematic-part > [role=button]:focus-visible .schematic-part-hit { fill: #284050; fill-opacity: .35; stroke: #6b8ca1; }
-.schematic-part.is-selected .schematic-part-hit { fill: #194438; fill-opacity: .25; stroke: #67d8a7; }
-.schematic-part.is-selected .schematic-symbol { stroke: #a7f0d0; }
-.schematic-part-id { fill: #f0f5f8; font-size: 12px; font-weight: 600; }
-.schematic-part-name { fill: #e0e9f0; font-size: 11px; }
-.schematic-part-value { fill: #9cb7ca; font-size: 10px; }
+.schematic-part-hit { fill: transparent; stroke: transparent; }
+.schematic-part > [role=button]:hover .schematic-part-hit, .schematic-part > [role=button]:focus-visible .schematic-part-hit { fill: #ffffff08; }
+
+.schematic-pin { cursor: pointer; outline: none; }
 .schematic-pin-hit { fill: transparent; stroke: transparent; }
-.schematic-pin-dot { fill: #12201d; stroke: #80d9b8; stroke-width: 1.8; }
-.schematic-pin text { fill: #b5dccc; font-size: 11px; paint-order: stroke; stroke: #10171e; stroke-width: 3px; stroke-linejoin: round; }
-.schematic-pin:hover .schematic-pin-hit, .schematic-pin:focus-visible .schematic-pin-hit, .schematic-pin.is-pending .schematic-pin-hit { fill: #58d3a1; fill-opacity: .15; stroke: #8eeec9; stroke-width: 1px; }
-.schematic-pin.is-pending .schematic-pin-dot { fill: #b0f6d9; }
-.schematic-voltage { fill: #8fe5bc; font-size: 11px; font-family: ui-monospace, monospace; paint-order: stroke; stroke: #10171e; stroke-width: 4px; stroke-linejoin: round; }
-.schematic-empty { fill: #99acba; font-size: 14px; }
-.schematic-diagnostics { max-height: 170px; overflow: auto; padding: 10px 18px; background: #141e27; border-top: 1px solid #2b3945; }
-.schematic-diagnostics p { margin: 3px 0; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
-.schematic-error { color: #ffaaa2; }
-.schematic-warning { color: #edcc89; }
-.schematic-info { color: #a4c0d3; }
-@media (max-width: 600px) { .schematic-toolbar { padding: 12px; align-items: flex-start; } .schematic-help { padding: 8px 12px; } .schematic-diagnostics { padding: 10px 12px; } }
+.schematic-pin-dot { fill: #33373b; stroke: #9aa1a8; stroke-width: 1.4; }
+.schematic-pin:hover .schematic-pin-hit, .schematic-pin:focus-visible .schematic-pin-hit { fill: #4a8fd92c; stroke: #79a9e2; stroke-width: 1; }
+.schematic-pin.is-pending .schematic-pin-hit { fill: #4a8fd93d; stroke: #4a8fd9; }
+.schematic-pin.is-probe .schematic-pin-hit { fill: #d9b64a33; stroke: #d9b64a; }
+.schematic-probe-marker circle { fill: none; stroke: #e6c252; stroke-width: 2; }
+.schematic-probe-marker circle:last-child { fill: #e6c252; stroke: none; }
+.schematic-empty { fill: #7c848b; font-size: 14px; }
+
+.schematic-probe-readout { position: absolute; top: 12px; left: 12px; z-index: 6; display: flex; align-items: center; gap: 8px; padding: 6px 10px; border: 1px solid #3a3d42; border-radius: 7px; background: #16181bee; font-size: 11px; color: #c9cdd2; backdrop-filter: blur(8px); }
+.schematic-probe-readout b { color: #e8eaec; font-weight: 550; }
+.schematic-probe-value { font-family: ui-monospace, monospace; color: #e6c252; }
+.schematic-probe-dot { width: 8px; height: 8px; border-radius: 50%; background: #e6c252; }
+.schematic-probe-readout button { padding: 1px 5px; border: 0; background: none; color: #8f9aa4; font-size: 10px; cursor: pointer; }
+.schematic-probe-readout button:hover { color: #e8eaec; }
+
+.schematic-canvasbar { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); z-index: 6; display: flex; align-items: center; gap: 2px; height: 36px; padding: 0 8px; border: 1px solid #33363a; border-radius: 9px; background: #16181be8; backdrop-filter: blur(10px); box-shadow: 0 6px 20px #0007; white-space: nowrap; }
+.schematic-canvasbar button { display: inline-flex; align-items: center; gap: 5px; padding: 6px 7px; border: 0; border-radius: 6px; background: none; color: #a7adb4; font-size: 11px; cursor: pointer; }
+.schematic-canvasbar button:hover:not(:disabled) { background: #26282c; color: #e8eaec; }
+.schematic-canvasbar button:disabled { opacity: .35; cursor: not-allowed; }
+.schematic-canvasbar button span { font-size: 11px; }
+.schematic-canvasbar i { width: 1px; height: 16px; background: #33363a; margin: 0 5px; }
+.schematic-zoom-reset { min-width: 42px; font-variant-numeric: tabular-nums; }
+.schematic-labels-toggle { display: inline-flex; align-items: center; gap: 7px; padding: 0 6px; font-size: 11px; color: #c9cdd2; cursor: pointer; user-select: none; }
+.schematic-labels-toggle input { position: absolute; opacity: 0; pointer-events: none; }
+.schematic-labels-toggle i { width: 26px; height: 15px; margin: 0; background: #33363a; border-radius: 999px; position: relative; transition: background .15s; }
+.schematic-labels-toggle i::after { content: ''; position: absolute; top: 2px; left: 2px; width: 11px; height: 11px; border-radius: 50%; background: #c9cdd2; transition: transform .15s; }
+.schematic-labels-toggle input:checked + i { background: #4a8fd9; }
+.schematic-labels-toggle input:checked + i::after { transform: translateX(11px); background: #fff; }
+.schematic-labels-toggle input:focus-visible + i { outline: 2px solid #4a8fd9; outline-offset: 2px; }
+.schematic-info-pop { position: absolute; bottom: 58px; left: 50%; transform: translateX(-50%); z-index: 6; max-width: 420px; padding: 9px 12px; border: 1px solid #33363a; border-radius: 8px; background: #16181bf2; color: #a7adb4; font-size: 10.5px; line-height: 1.7; backdrop-filter: blur(10px); }
+
+@media (max-width: 720px) { .schematic-canvasbar { gap: 0; padding: 0 5px; } .schematic-canvasbar button span { display: none; } }

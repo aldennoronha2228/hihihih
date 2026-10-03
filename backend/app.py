@@ -13,8 +13,10 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel, Field, model_validator, field_validator
 from backend.agent import stream_agent
 from backend.models import model_options, build_model
+from backend.bedrock_model import bedrock_configured
 from backend.plain_chat import stream_plain_chat
 from backend.hardware import router as hardware_router, local_connection
+from backend.sample_projects import router as sample_router
 
 ENV_PATH = Path(__file__).resolve().parents[1] / '.env'
 load_dotenv(ENV_PATH)
@@ -37,7 +39,7 @@ class ChatRequest(BaseModel):
     project_id: str | None = Field(default=None, max_length=128)
     runtime_token: str | None = Field(default=None, max_length=128)
     project_answers: dict[str, str] | None = None
-    provider: Literal['groq', 'nvidia'] = 'groq'
+    provider: Literal['groq', 'nvidia', 'bedrock', 'azure'] = 'groq'
 
     @field_validator('project_answers')
     @classmethod
@@ -84,6 +86,7 @@ def create_app(model_factory=None, api_key=None):
     application = FastAPI(title='WireUp LangChain API')
     application.state.model_factory = model_factory
     application.include_router(hardware_router)
+    application.include_router(sample_router)
 
     @application.get('/api/health')
     async def health():
@@ -97,11 +100,11 @@ def create_app(model_factory=None, api_key=None):
             raise HTTPException(403, 'The local hardware agent is restricted to loopback clients.')
         reload_settings()
         provider = payload.provider
-        key_name = 'NVIDIA_API_KEY' if provider == 'nvidia' else 'GROQ_API_KEY'
+        key_name = {'azure': 'AZURE_API_KEY', 'nvidia': 'NVIDIA_API_KEY', 'bedrock': 'BEDROCK_API_KEY', 'groq': 'GROQ_API_KEY'}[provider]
         key = api_key if api_key is not None else os.getenv(key_name, '')
-        if not key.strip():
+        if not key.strip() and not (provider == 'bedrock' and bedrock_configured()):
             raise HTTPException(503, f'Add {key_name} to .env, then retry to enable {provider.upper()} replies.')
-        model_name = os.getenv('NVIDIA_MODEL', 'z-ai/glm-5.3') if provider == 'nvidia' else os.getenv('GROQ_MODEL', 'openai/gpt-oss-120b')
+        model_name = os.getenv('AZURE_MODEL_ID', 'gpt-6.1-sol') if provider == 'azure' else os.getenv('BEDROCK_MODEL_ID', 'moonshotai.kimi-k2.5') if provider == 'bedrock' else os.getenv('NVIDIA_MODEL', 'z-ai/glm-5.3') if provider == 'nvidia' else os.getenv('GROQ_MODEL', 'openai/gpt-oss-120b')
         selected = []
         count = 0
         for message in reversed(payload.messages):
@@ -133,7 +136,7 @@ def create_app(model_factory=None, api_key=None):
             if len(selected) < len(payload.messages):
                 yield event('text', channel='narration', text='Older messages were omitted from model context.\n')
             plain = not payload.project_id and not any(word in payload.messages[-1].content.lower() for word in ('calculate', 'calculator', 'compute')) and application.state.model_factory is None
-            stream = stream_plain_chat(model, history) if plain else stream_agent(model, history, payload.project_id, payload.runtime_token, requirements=payload.project_answers)
+            stream = stream_plain_chat(model, history, timeout_seconds=300 if provider == 'bedrock' else 30) if plain else stream_agent(model, history, payload.project_id, payload.runtime_token, requirements=payload.project_answers)
             async with aclosing(stream) as agent:
                 pending = asyncio.create_task(anext(agent, None))
                 try:
@@ -149,9 +152,9 @@ def create_app(model_factory=None, api_key=None):
                             return
                         if await request.is_disconnected():
                             return
-                        if provider == 'nvidia' and item.get('type') == 'text' and item.get('channel') == 'narration':
-                            text = item.get('text', '').replace('Groq', 'NVIDIA')
-                            if 'model could not complete' in text.lower():
+                        if provider in ('nvidia', 'azure') and item.get('type') == 'text' and item.get('channel') == 'narration':
+                            text = item.get('text', '').replace('Groq', 'NVIDIA' if provider == 'nvidia' else 'Azure')
+                            if provider == 'nvidia' and 'model could not complete' in text.lower():
                                 text = 'NVIDIA could not complete this request. Check your key and model access in the NVIDIA API catalog.'
                             item = {**item, 'text': text}
                         yield json.dumps(item, ensure_ascii=False) + '\n'

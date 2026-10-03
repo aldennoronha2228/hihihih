@@ -2,6 +2,7 @@ import { AVRSimulator } from '../../vendor/velxio/frontend/src/simulation/AVRSim
 import { PinManager } from '../../vendor/velxio/frontend/src/simulation/PinManager'
 import { verifyHexChecksum } from '../../vendor/velxio/frontend/src/utils/hexParser'
 import { runtimeUrl } from '../lib/hardware'
+import { C3Simulator, validateC3Artifact } from './C3Simulator'
 import type { HardwareArtifact, HardwareProject, WireEndpoint } from '../lib/hardware'
 
 export type DigitalSample = { pin: string; level: boolean; time_ms: number; cycles: number }
@@ -18,6 +19,7 @@ export type RuntimeResults = {
 }
 export type RuntimeArtifact = Omit<HardwareArtifact, 'hex'> & {
   hex?: string; program?: string; bin?: string; encoding?: string; load_address?: number; size_bytes?: number
+  chip?: string; image_kind?: string; flash_size_bytes?: number
 }
 type Simulator = Pick<AVRSimulator, 'pinManager' | 'onBaudRateChange' | 'onPinChangeWithTime' | 'start' | 'stop' | 'isRunning' | 'getClockHz' | 'getCurrentCycles' | 'setPinState' | 'getBusBinding'> & { onSerialData: ((char: string, uart?: number) => void) | null }
 type PicoSimulator = Simulator & { loadBinary(base64: string): void }
@@ -46,6 +48,13 @@ export function connectedEndpoints(project: HardwareProject, endpoint: WireEndpo
 }
 
 export function boardPin(board: string, name: string): number | null {
+  if (board === 'esp32-c3') {
+    if (name === 'TX' || name === 'TX0') return 21
+    if (name === 'RX' || name === 'RX0') return 20
+    if (name === 'LED_BUILTIN') return 8
+    if (/^(?:GPIO|GP|D)?(?:[0-9]|1[0-9]|2[01])$/.test(name)) return Number(name.replace(/^(?:GPIO|GP|D)/, ''))
+    return null
+  }
   if (board === 'pi-pico') {
     if (name === 'LED_BUILTIN') return 25
     if (name === 'TX') return 0
@@ -76,6 +85,7 @@ export function unoPin(name: string): number | null { return boardPin('arduino-u
 
 function channelName(board: string, pin: number): string | null {
   if (!Number.isInteger(pin) || pin < 0) return null
+  if (board === 'esp32-c3') return pin < 22 ? `GPIO${pin}` : null
   if (board === 'pi-pico') return pin < 30 ? `GP${pin}` : null
   const digital = board === 'arduino-mega' ? 54 : 14
   const analog = board === 'arduino-mega' ? 16 : 6
@@ -93,7 +103,7 @@ function artifactPayload(artifact: RuntimeArtifact, legacy: 'hex' | 'bin'): stri
 }
 
 export function validateRuntimeArtifact(project: HardwareProject, artifact: RuntimeArtifact): string {
-  if (!AVR_BOARDS.has(project.board) && project.board !== 'pi-pico') throw new Error(`Unsupported browser simulation board: ${project.board}.`)
+  if (!AVR_BOARDS.has(project.board) && project.board !== 'pi-pico' && project.board !== 'esp32-c3') throw new Error(`Unsupported browser simulation board: ${project.board}.`)
   if (artifact.board !== project.board) throw new Error('Firmware artifact board does not match the selected board.')
   if (artifact.source_revision !== project.firmware.revision) throw new Error('Firmware artifact is stale. Compile the current project first.')
   if (AVR_BOARDS.has(project.board)) {
@@ -101,6 +111,11 @@ export function validateRuntimeArtifact(project: HardwareProject, artifact: Runt
     const payload = artifactPayload(artifact, 'hex')
     const lines = payload.trim().split(/\r?\n/).map(line => line.trim()).filter(Boolean)
     if (!lines.length || !lines.every(line => /^:[0-9a-f]+$/i.test(line) && line.length === 11 + Number.parseInt(line.slice(1, 3), 16) * 2 && verifyHexChecksum(line)) || !lines.some(line => line.slice(7, 9) === '00') || lines.at(-1)?.toUpperCase() !== ':00000001FF') throw new Error('Compiler artifact is not valid Intel HEX.')
+    return payload
+  }
+  if (project.board === 'esp32-c3') {
+    const payload = artifactPayload(artifact, 'bin')
+    validateC3Artifact(artifact, payload)
     return payload
   }
   if (artifact.format !== 'bin') throw new Error(`pi-pico requires a raw flash bin artifact, not ${artifact.format}; UF2 is not supported by this loader.`)
@@ -206,7 +221,7 @@ export class HardwareRuntime {
     this.serialLink = null
     this.artifactId = artifact.id
     this.resetSamples()
-    const simulator: Simulator = project.board === 'pi-pico' ? new RP2040Simulator(new PinManager()) : new AVRSimulator(new PinManager(), project.board === 'arduino-mega' ? 'mega' : 'uno')
+    const simulator: Simulator = project.board === 'esp32-c3' ? new C3Simulator(new PinManager()) : project.board === 'pi-pico' ? new RP2040Simulator(new PinManager()) : new AVRSimulator(new PinManager(), project.board === 'arduino-mega' ? 'mega' : 'uno')
     this.simulator = simulator
     const previousSerial = simulator.onSerialData
     simulator.onSerialData = (char, uart) => {
@@ -230,7 +245,10 @@ export class HardwareRuntime {
     simulator.onPinChangeWithTime = capture
     this.cleanups.push(() => { if (simulator.onPinChangeWithTime === capture) simulator.onPinChangeWithTime = previousEdge })
     try {
-      if (simulator instanceof RP2040Simulator) simulator.loadBinary(payload)
+      if (simulator instanceof C3Simulator) {
+        await simulator.loadBinary(payload)
+        if (this.disposed || this.simulator !== simulator) throw new Error('ESP32-C3 startup was cancelled.')
+      } else if (simulator instanceof RP2040Simulator) simulator.loadBinary(payload)
       else if (simulator instanceof AVRSimulator) simulator.loadHex(payload)
       this.attachInputs()
       simulator.start()
@@ -248,8 +266,8 @@ export class HardwareRuntime {
   stop() { this.simulator?.stop(); this.publish() }
 
   getChannels(): string[] {
-    if (!this.project || (!AVR_BOARDS.has(this.project.board) && this.project.board !== 'pi-pico')) return []
-    const count = this.project.board === 'pi-pico' ? 30 : this.project.board === 'arduino-mega' ? 70 : 20
+    if (!this.project || (!AVR_BOARDS.has(this.project.board) && this.project.board !== 'pi-pico' && this.project.board !== 'esp32-c3')) return []
+    const count = this.project.board === 'esp32-c3' ? 22 : this.project.board === 'pi-pico' ? 30 : this.project.board === 'arduino-mega' ? 70 : 20
     return Array.from({ length: count }, (_, pin) => channelName(this.project!.board, pin)!)
   }
 
@@ -390,8 +408,4 @@ export class HardwareRuntime {
     this.simulator?.stop()
     this.cleanups.forEach(cleanup => cleanup())
     if (this.timer) clearInterval(this.timer)
-    this.socket?.close()
-    this.elements.clear()
-    this.listeners.clear()
-  }
-}
+    th

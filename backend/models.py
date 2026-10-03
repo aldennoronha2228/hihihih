@@ -2,18 +2,30 @@ import os
 
 from langchain.chat_models import init_chat_model
 from langchain_openai import ChatOpenAI
+from backend.bedrock_model import bedrock_configured, build_bedrock
 
 NVIDIA_BASE_URL = 'https://integrate.api.nvidia.com/v1'
+AZURE_BASE_URL = 'https://project-t3-resource.services.ai.azure.com/openai/v1'
 
 
 def model_options():
     return [
         {'id': 'groq', 'label': 'Groq', 'model': os.getenv('GROQ_MODEL', 'openai/gpt-oss-120b'), 'configured': bool(os.getenv('GROQ_API_KEY', '').strip())},
         {'id': 'nvidia', 'label': 'NVIDIA', 'model': os.getenv('NVIDIA_MODEL', 'z-ai/glm-5.3'), 'configured': bool(os.getenv('NVIDIA_API_KEY', '').strip())},
+        {'id': 'bedrock', 'label': 'Amazon Bedrock', 'model': os.getenv('BEDROCK_MODEL_ID', 'moonshotai.kimi-k2.5'), 'configured': bedrock_configured()},
+        {'id': 'azure', 'label': 'Azure', 'model': os.getenv('AZURE_MODEL_ID', 'gpt-6.1-sol'), 'configured': bool(os.getenv('AZURE_API_KEY', '').strip())},
     ]
 
 
 def build_model(provider, key, model_name):
+    if provider == 'azure':
+        return ChatOpenAI(model=model_name, api_key=key,
+                          base_url=os.getenv('AZURE_BASE_URL', AZURE_BASE_URL).rstrip('/'),
+                          default_headers={'api-key': key}, streaming=True,
+                          max_retries=0, timeout=30, max_completion_tokens=4096,
+                          stream_usage=False)
+    if provider == 'bedrock':
+        return build_bedrock(model_name)
     if provider == 'nvidia':
         return ChatOpenAI(model=model_name, api_key=key, base_url=NVIDIA_BASE_URL,
                           temperature=0.5, max_retries=0, timeout=20, streaming=True,
