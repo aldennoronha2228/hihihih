@@ -1,0 +1,28 @@
+.hardware-instruments { margin-top: 16px; padding: 16px; border: 1px solid #293340; border-radius: 12px; background: #10161f; color: #d6e0ec; min-width: 0; }
+.instrument-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.instrument-header h3 { margin: 0; font-size: 15px; }
+.instrument-header p, .instrument-footnote { color: #91a2b7; font-size: 12px; margin: 6px 0 12px; }
+.instrument-status { white-space: nowrap; border: 1px solid #384354; border-radius: 20px; padding: 3px 10px; font-size: 12px; color: #a6b4c5; }
+.instrument-status.is-running { color: #60dfb6; border-color: #2a715d; }
+.instrument-toolbar, .instrument-channels { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 12px 0; }
+.hardware-instruments label { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; }
+.hardware-instruments select, .hardware-instruments button { color: #d6e0ec; background: #1c2532; border: 1px solid #3a485a; border-radius: 6px; padding: 6px 9px; font: inherit; font-size: 12px; }
+.hardware-instruments button { cursor: pointer; }
+.hardware-instruments button:hover:not(:disabled) { background: #2b394b; }
+.hardware-instruments button:disabled { opacity: .45; cursor: not-allowed; }
+.hardware-instruments :is(button, select):focus-visible { outline: 2px solid #7cbcff; outline-offset: 2px; }
+.instrument-channel { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid #344255; border-radius: 7px; font-size: 11px; }
+.instrument-channel button { padding: 1px 5px; }
+.instrument-plot { display: block; width: 100%; height: auto; min-height: 100px; background: #080d14; border: 1px solid #283344; border-radius: 8px; }
+.instrument-plot text { fill: #91a2b7; font-family: monospace; font-size: 11px; }
+.instrument-grid { stroke: #223040; stroke-width: 1; }
+.instrument-digital-trace, .instrument-analog-trace { fill: none; stroke-width: 2; vector-effect: non-scaling-stroke; }
+.instrument-analog-trace { stroke: #7cbcff; }
+.instrument-cursor { stroke: #f4cf79; stroke-width: 1; stroke-dasharray: 4 4; }
+.instrument-caption { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; margin-top: 8px; color: #91a2b7; font: 11px monospace; }
+.instrument-notice { color: #b8c7d9; font-size: 12px; padding: 10px; border: 1px dashed #344255; border-radius: 6px; }
+.instrument-notice p { margin: 4px 0; }
+.instrument-reading { padding: 24px 12px; font: 18px monospace; color: #7cbcff; background: #080d14; border-radius: 8px; }
+.instrument-reading small { display: block; font-size: 12px; color: #91a2b7; margin-top: 10px; }
+.instrument-footnote { margin-bottom: 0; }
+@media (max-width: 600px) { .hardware-instruments { padding: 10px; } .instrument-header { flex-wrap: wrap; } .instrument-toolbar label { flex-wrap: wrap; } }
