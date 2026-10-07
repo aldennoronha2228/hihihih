@@ -170,6 +170,8 @@ export function HardwareWorkspace({ chatSlot, children, onProjectChange, schemat
   useEffect(() => {
     let active = true
     const controller = new AbortController()
+    const loadingStarted = performance.now()
+    let finishTimer: ReturnType<typeof setTimeout> | undefined
     setLoading(true); setLoadError(''); setError(''); setProject(null); projectRef.current = null
     setSelected(''); setPins({}); setResults(null); setWireStart(null)
     if (!projectId) {

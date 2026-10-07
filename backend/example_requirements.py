@@ -1,4 +1,5 @@
 import copy
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -159,6 +160,13 @@ def get_example_reference(example_id, catalog=None):
                                 'browser_run': 'not_verified', 'simulation_verified': False},
         'truncated': any(truncation.values()), 'truncation': truncation,
     })
+    knowledge_path = ANALYSIS_PATH.with_name('example-build-knowledge.json')
+    if knowledge_path.exists():
+        knowledge = json.loads(knowledge_path.read_text(encoding='utf-8'))
+        if knowledge.get('export_sha256') == hashlib.sha256(EXAMPLES_PATH.read_bytes()).hexdigest():
+            record = next((item for item in knowledge['examples'] if item['id'] == example_id), None)
+            if record:
+                result['build_knowledge'] = {key: record[key] for key in ('source_facts', 'adaptations', 'canonical_mapping_available', 'source_sha256')}
     return result
 
 
@@ -200,7 +208,8 @@ def search_example_requirements(query: str, limit: int = 5, board=None, supporte
         board_hits = words & _tokens(' '.join(boards))
         if (focus and not hits) or (not focus and not board_hits):
             continue
-        score = (len(hits), len(hits & title), fully_supported, canonical,
+        behavior_hits = focus & {'blink','sweep','distance','press','control','temperature','humidity','counter'}
+        score = (len(behavior_hits & identity), len(hits & title), len(hits), fully_supported, canonical,
                  len(board_hits), -len(analysis.get('blockers', [])), len(hits & parts),
                  boards == ['arduino-uno'], -len(raw.get('components', [])))
         matches.append((score, analysis, raw, boards))

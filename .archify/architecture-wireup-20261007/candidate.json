@@ -1,0 +1,337 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "WireUp high-level architecture",
+    "subtitle": "Post-sync: feasibility engine, circuit wiring, security middleware, remote simulation server, and production deployment added",
+    "output": ".archify/architecture-wireup-20261007/wireup-architecture.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/aldennoronha2228/hihihih.git",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "bc1a885"
+    },
+    "views": [
+      {
+        "id": "request-path",
+        "label": "Request path",
+        "focus": ["user", "spa", "api", "agent", "feasibility", "providers"],
+        "note": "Browser requests enter through Vite and are streamed back from FastAPI. The agent now gates tool calls through the feasibility engine before execution."
+      },
+      {
+        "id": "hardware-path",
+        "label": "Hardware path",
+        "focus": ["spa", "hardware", "projects", "compiler", "circuit-wiring", "browser-runtime", "spice"],
+        "note": "Project edits persist to JSON. Circuit wiring validates and lays out connections before firmware compilation."
+      },
+      {
+        "id": "remote-path",
+        "label": "Remote & deployment",
+        "focus": ["hardware", "remote-sim-client", "remote-sim-server", "deployment-local", "deployment-remote"],
+        "note": "ESP32 boards use the remote simulation server. Production deployment ships via Docker Compose with Caddy ingress."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "user",
+      "type": "external",
+      "label": "Engineer",
+      "sublabel": "Browser user",
+      "icon": "person",
+      "pos": [40, 320],
+      "size": [140, 64],
+      "sources": [
+        { "path": "README.md", "line": 1, "end_line": 10, "label": "Local entry point" }
+      ]
+    },
+    {
+      "id": "spa",
+      "type": "frontend",
+      "label": "WireUp SPA",
+      "sublabel": "Vite + React + TypeScript",
+      "tag": "127.0.0.1:5173",
+      "icon": "frontend",
+      "pos": [250, 320],
+      "size": [180, 70],
+      "sources": [
+        { "path": "src/App.tsx", "line": 1, "end_line": 20, "label": "Routes and workspaces" },
+        { "path": "src/components/ui/ai-prompt-input.tsx", "line": 1, "end_line": 30, "label": "New AI prompt input" },
+        { "path": "src/components/ui/feasibility-card.tsx", "line": 1, "end_line": 23, "label": "Feasibility consent card" },
+        { "path": "src/components/ui/workspace-loading.tsx", "line": 1, "end_line": 6, "label": "Workspace loading overlay" }
+      ]
+    },
+    {
+      "id": "security",
+      "type": "backend",
+      "label": "Security middleware",
+      "sublabel": "Loopback guard, CORS, rate limiting, body cap",
+      "icon": "backend",
+      "pos": [490, 175],
+      "size": [210, 70],
+      "sources": [
+        { "path": "backend/security.py", "line": 1, "end_line": 60, "label": "ASGI guards" },
+        { "path": "backend/security.py", "line": 94, "end_line": 164, "label": "Request interception" }
+      ]
+    },
+    {
+      "id": "api",
+      "type": "backend",
+      "label": "FastAPI application",
+      "sublabel": "HTTP + NDJSON streaming + WebSocket",
+      "tag": "127.0.0.1:8000",
+      "icon": "backend",
+      "pos": [570, 320],
+      "size": [210, 70],
+      "sources": [
+        { "path": "backend/app.py", "line": 1, "end_line": 30, "label": "App and routes" },
+        { "path": "backend/run.py", "line": 19, "end_line": 30, "label": "Local server" }
+      ]
+    },
+    {
+      "id": "agent",
+      "type": "backend",
+      "label": "LangGraph hardware agent",
+      "sublabel": "Tool-scoped project operations",
+      "icon": "backend",
+      "pos": [840, 155],
+      "size": [210, 70],
+      "sources": [
+        { "path": "backend/agent.py", "line": 31, "end_line": 54, "label": "Tool and safety policy" },
+        { "path": "backend/agent.py", "line": 1, "end_line": 30, "label": "Agent module (expanded)" }
+      ]
+    },
+    {
+      "id": "feasibility",
+      "type": "backend",
+      "label": "Feasibility engine",
+      "sublabel": "Plan assessment, consent, operation gate",
+      "icon": "backend",
+      "pos": [1090, 155],
+      "size": [215, 70],
+      "sources": [
+        { "path": "backend/feasibility.py", "line": 21, "end_line": 130, "label": "assess() — plan analysis" },
+        { "path": "backend/feasibility.py", "line": 143, "end_line": 165, "label": "authorize() — consent gate" },
+        { "path": "backend/feasibility.py", "line": 167, "end_line": 191, "label": "check_operation() — pre-tool guard" },
+        { "path": "backend/FEASIBILITY_CONTRACT.md", "line": 1, "end_line": 7, "label": "Contract" }
+      ]
+    },
+    {
+      "id": "providers",
+      "type": "cloud",
+      "label": "Model providers",
+      "sublabel": "Groq / NVIDIA / Azure / Bedrock",
+      "icon": "cloud",
+      "pos": [1350, 155],
+      "size": [210, 70],
+      "sources": [
+        { "path": "backend/app.py", "line": 116, "end_line": 129, "label": "Provider selection" },
+        { "path": "backend/models.py", "line": 1, "end_line": 30, "label": "Model adapters" },
+        { "path": "backend/bedrock_model.py", "line": 1, "end_line": 13, "label": "Bedrock adapter" }
+      ]
+    },
+    {
+      "id": "hardware",
+      "type": "backend",
+      "label": "Hardware service",
+      "sublabel": "Catalog, revisions, commands, runtime bridge",
+      "icon": "backend",
+      "pos": [840, 320],
+      "size": [230, 76],
+      "sources": [
+        { "path": "backend/hardware.py", "line": 594, "end_line": 641, "label": "Persistence service" },
+        { "path": "backend/hardware.py", "line": 973, "end_line": 1038, "label": "Hardware API" }
+      ]
+    },
+    {
+      "id": "circuit-wiring",
+      "type": "backend",
+      "label": "Circuit wiring",
+      "sublabel": "Connection validation and layout",
+      "icon": "backend",
+      "pos": [840, 490],
+      "size": [230, 70],
+      "sources": [
+        { "path": "backend/circuit_wiring.py", "line": 71, "end_line": 207, "label": "validate() — wiring rules" },
+        { "path": "backend/circuit_wiring.py", "line": 209, "end_line": 250, "label": "wire_circuit() — agent tool" }
+      ]
+    },
+    {
+      "id": "projects",
+      "type": "database",
+      "label": "Project JSON store",
+      "sublabel": "backend/data/hardware/*.json",
+      "icon": "database",
+      "pos": [1200, 320],
+      "size": [210, 70],
+      "sources": [
+        { "path": "backend/hardware.py", "line": 594, "end_line": 616, "label": "Store location" },
+        { "path": "backend/hardware.py", "line": 617, "end_line": 626, "label": "Atomic save" }
+      ]
+    },
+    {
+      "id": "compiler",
+      "type": "backend",
+      "label": "Arduino compiler",
+      "sublabel": "Arduino CLI + temporary build artifacts",
+      "icon": "backend",
+      "pos": [840, 650],
+      "size": [230, 76],
+      "sources": [
+        { "path": "backend/hardware.py", "line": 383, "end_line": 393, "label": "CLI discovery" },
+        { "path": "backend/hardware.py", "line": 437, "end_line": 475, "label": "Compile process" }
+      ]
+    },
+    {
+      "id": "browser-runtime",
+      "type": "frontend",
+      "label": "Browser MCU runtime",
+      "sublabel": "avr8js / rp2040js via runtime WebSocket",
+      "icon": "frontend",
+      "pos": [1200, 490],
+      "size": [220, 76],
+      "sources": [
+        { "path": "backend/hardware.py", "line": 40, "end_line": 57, "label": "Supported boards" },
+        { "path": "backend/hardware.py", "line": 707, "end_line": 752, "label": "Runtime bridge" },
+        { "path": "src/hardware/runtime.ts", "line": 1, "end_line": 51, "label": "Runtime client (updated)" }
+      ]
+    },
+    {
+      "id": "spice",
+      "type": "backend",
+      "label": "Analog solver",
+      "sublabel": "In-browser DC / transient circuit analysis",
+      "icon": "backend",
+      "pos": [510, 650],
+      "size": [210, 70],
+      "sources": [
+        { "path": "src/App.tsx", "line": 28, "end_line": 42, "label": "DC and transient solve" },
+        { "path": "src/hardware/spice.ts", "line": 1, "end_line": 20, "label": "Solver module" }
+      ]
+    },
+    {
+      "id": "remote-sim-client",
+      "type": "backend",
+      "label": "Remote sim client",
+      "sublabel": "HTTPS bearer-auth client for ESP32 sessions",
+      "icon": "backend",
+      "pos": [1200, 650],
+      "size": [220, 70],
+      "sources": [
+        { "path": "backend/remote_simulation.py", "line": 1, "end_line": 30, "label": "Client module" },
+        { "path": "backend/remote_simulation.py", "line": 30, "end_line": 90, "label": "RemoteSimulationClient" },
+        { "path": "backend/remote_projects.py", "line": 1, "end_line": 44, "label": "Session lifecycle wrapper" }
+      ]
+    },
+    {
+      "id": "remote-sim-server",
+      "type": "cloud",
+      "label": "Remote simulation server",
+      "sublabel": "ESP32 emulator — separately deployed",
+      "icon": "cloud",
+      "pos": [1470, 650],
+      "size": [220, 76],
+      "sources": [
+        { "path": "deployment/remote-simulation/server.py", "line": 1, "end_line": 40, "label": "Emulator HTTP API" },
+        { "path": "deployment/remote-simulation/compose.yaml", "line": 1, "end_line": 28, "label": "Compose" },
+        { "path": "deployment/remote-simulation/nginx.conf", "line": 1, "end_line": 32, "label": "Nginx ingress" }
+      ]
+    },
+    {
+      "id": "deployment-local",
+      "type": "backend",
+      "label": "Local production stack",
+      "sublabel": "Docker Compose + Caddy TLS ingress",
+      "icon": "backend",
+      "pos": [490, 490],
+      "size": [220, 76],
+      "sources": [
+        { "path": "deployment/local-production/compose.yaml", "line": 1, "end_line": 83, "label": "Compose stack" },
+        { "path": "deployment/local-production/Caddyfile", "line": 1, "end_line": 36, "label": "Caddy ingress" },
+        { "path": "deployment/local-production/Dockerfile", "line": 1, "end_line": 56, "label": "Unified container image" },
+        { "path": "deployment/local-production/entrypoint.py", "line": 1, "end_line": 20, "label": "Entrypoint" }
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Local development machine",
+      "wraps": ["spa", "api", "security", "agent", "feasibility", "hardware", "circuit-wiring", "projects", "compiler", "browser-runtime", "spice", "remote-sim-client", "deployment-local"]
+    },
+    {
+      "kind": "security-group",
+      "label": "Loopback-restricted local API (SecurityMiddleware)",
+      "wraps": ["security", "api", "agent", "feasibility", "hardware"]
+    }
+  ],
+  "connections": [
+    { "id": "user-to-spa", "from": "user", "to": "spa", "label": "HTTP", "variant": "emphasis" },
+    { "id": "spa-to-api", "from": "spa", "to": "api", "label": "REST + WebSocket proxy", "variant": "emphasis" },
+    { "id": "spa-to-security", "from": "spa", "to": "security", "label": "all requests filtered", "fromSide": "top", "toSide": "bottom", "variant": "dashed" },
+    { "id": "security-to-api", "from": "security", "to": "api", "label": "allowed requests", "fromSide": "bottom", "toSide": "top" },
+    { "id": "api-to-agent", "from": "api", "to": "agent", "label": "stream chat / tool calls", "fromSide": "top", "toSide": "bottom" },
+    { "id": "agent-to-feasibility", "from": "agent", "to": "feasibility", "label": "assess & gate operations" },
+    { "id": "agent-to-providers", "from": "agent", "to": "providers", "label": "model inference", "variant": "dashed" },
+    { "id": "api-to-hardware", "from": "api", "to": "hardware", "label": "hardware routes" },
+    { "id": "agent-to-hardware", "from": "agent", "to": "hardware", "label": "validated project tools", "fromSide": "bottom", "toSide": "top" },
+    { "id": "hardware-to-projects", "from": "hardware", "to": "projects", "label": "atomic JSON persistence" },
+    { "id": "hardware-to-circuit", "from": "hardware", "to": "circuit-wiring", "label": "wiring validation + layout", "fromSide": "bottom", "toSide": "top" },
+    { "id": "circuit-to-compiler", "from": "circuit-wiring", "to": "compiler", "label": "validated netlist", "fromSide": "bottom", "toSide": "top" },
+    { "id": "hardware-to-compiler", "from": "hardware", "to": "compiler", "label": "compile firmware", "fromSide": "bottom", "toSide": "top" },
+    { "id": "compiler-to-browser", "from": "compiler", "to": "browser-runtime", "label": "HEX / BIN artifact", "variant": "dashed" },
+    { "id": "compiler-to-remote-client", "from": "compiler", "to": "remote-sim-client", "label": "ESP32 merged flash", "variant": "dashed" },
+    { "id": "spa-to-browser", "from": "spa", "to": "browser-runtime", "label": "runtime commands", "variant": "dashed" },
+    { "id": "spa-to-spice", "from": "spa", "to": "spice", "label": "DC / transient solve", "fromSide": "bottom", "toSide": "top" },
+    { "id": "remote-client-to-server", "from": "remote-sim-client", "to": "remote-sim-server", "label": "HTTPS bearer sessions", "variant": "dashed" },
+    { "id": "api-to-deployment", "from": "api", "to": "deployment-local", "label": "served by Caddy in prod", "variant": "dashed", "fromSide": "bottom", "toSide": "top" }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Entry and orchestration",
+      "items": [
+        "Vite serves the SPA and proxies /api plus WebSockets to FastAPI.",
+        "FastAPI streams chat events as NDJSON and mounts hardware, sample, and security routers.",
+        "SecurityMiddleware enforces loopback-only access, CORS, request-body caps, and concurrent-request budget (new)."
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Feasibility engine (new)",
+      "items": [
+        "assess() analyses an agent plan and returns a risk report before any destructive tool call.",
+        "authorize() records user consent against a plan assessment ID.",
+        "check_operation() gates each individual tool invocation — the agent cannot proceed without a valid approval token."
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Circuit wiring (new)",
+      "items": [
+        "validate_circuit() enforces electrical rules: power-rail types, GPIO conflicts, missing grounds.",
+        "wire_circuit() is an agent tool that validates and writes the connection list back into the project JSON.",
+        "Wiring runs before compilation to catch layout errors early."
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "Execution modes",
+      "items": [
+        "Arduino CLI produces temporary firmware artifacts.",
+        "AVR and RP2040 boards execute in-browser via avr8js / rp2040js.",
+        "ESP32 boards (devkit-v1, devkit-c-v4, S3, C3) route to the remote simulation server via RemoteSimulationClient (new)."
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Production deployment (new)",
+      "items": [
+        "local-production: Docker Compose stack — single unified image with Caddy TLS ingress.",
+        "remote-simulation: standalone emulator Docker Compose with Nginx ingress, independently deployable.",
+        "Both stacks ship Dockerfiles and smoke tests."
+      ]
+    }
+  ]
+}

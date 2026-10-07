@@ -1,4 +1,14 @@
 import {expect,test} from '@playwright/test'
+test('loading remains usable without WebGL',async({page,request})=>{
+ await page.addInitScript(()=>{const original=HTMLCanvasElement.prototype.getContext;HTMLCanvasElement.prototype.getContext=function(type,...args){if(type==='webgl')return null;return original.call(this,type,...args)} as typeof original})
+ const project=await(await request.post('/api/hardware/projects',{data:{name:'Fallback',board:'arduino-uno'}})).json()
+ let release!:()=>void;const ready=new Promise<void>(resolve=>{release=resolve})
+ await page.route(`**/api/hardware/projects/${project.id}`,async route=>{await ready;await route.fulfill({json:project})})
+ await page.goto(`/project/${project.id}`)
+ const loading=page.getByRole('status',{name:'Loading workspace',exact:true})
+ await expect(loading).toBeVisible();await expect(loading.locator('canvas')).toHaveAttribute('data-render-state','fallback')
+ release();await expect(page.getByLabel('Circuit canvas',{exact:true})).toBeVisible()
+})
 for(const width of [1440,390])test(`loading animation respects reduced motion and opens workspace at ${width}px`,async({page,request})=>{
  const project=await(await request.post('/api/hardware/projects',{data:{name:'Loading animation',board:'arduino-uno'}})).json()
  let release!:()=>void
@@ -9,9 +19,12 @@ for(const width of [1440,390])test(`loading animation respects reduced motion an
  const loading=page.getByRole('status',{name:'Loading workspace',exact:true})
  await expect(loading).toBeVisible()
  await expect(loading).toContainText('Opening your workspace')
- expect(await loading.locator('.workspace-loading-track span').evaluate(element=>getComputedStyle(element).animationName)).toBe('workspace-track')
+ const canvas=loading.locator('canvas')
+ await expect(canvas).toHaveAttribute('data-render-state','ready')
+ const box=await canvas.boundingBox();expect(box!.width).toBeLessThanOrEqual(width)
+ await page.screenshot({path:`test-results/siri-loading-${width}.png`})
  await page.emulateMedia({reducedMotion:'reduce'})
- expect(await loading.locator('.workspace-loading-track span').evaluate(element=>getComputedStyle(element).animationName)).toBe('none')
+ await expect(canvas).toHaveAttribute('data-motion','static')
  release()
  await expect(loading).toHaveCount(0)
  await expect(page.getByLabel('Circuit canvas',{exact:true})).toBeVisible()
