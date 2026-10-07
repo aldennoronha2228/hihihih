@@ -1,0 +1,20 @@
+import {expect,test} from '@playwright/test'
+for(const width of [1440,390])test(`loading animation respects reduced motion and opens workspace at ${width}px`,async({page,request})=>{
+ const project=await(await request.post('/api/hardware/projects',{data:{name:'Loading animation',board:'arduino-uno'}})).json()
+ let release!:()=>void
+ const ready=new Promise<void>(resolve=>{release=resolve})
+ await page.route(`**/api/hardware/projects/${project.id}`,async route=>{await ready;await route.fulfill({json:project})})
+ await page.setViewportSize({width,height:900})
+ await page.goto(`/project/${project.id}`)
+ const loading=page.getByRole('status',{name:'Loading workspace',exact:true})
+ await expect(loading).toBeVisible()
+ await expect(loading).toContainText('Opening your workspace')
+ expect(await loading.locator('.workspace-loading-track span').evaluate(element=>getComputedStyle(element).animationName)).toBe('workspace-track')
+ await page.emulateMedia({reducedMotion:'reduce'})
+ expect(await loading.locator('.workspace-loading-track span').evaluate(element=>getComputedStyle(element).animationName)).toBe('none')
+ release()
+ await expect(loading).toHaveCount(0)
+ await expect(page.getByLabel('Circuit canvas',{exact:true})).toBeVisible()
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
+ await page.screenshot({path:`test-results/workspace-opened-${width}.png`})
+})

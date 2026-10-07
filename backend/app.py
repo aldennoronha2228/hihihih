@@ -1,5 +1,5 @@
 import asyncio
-from contextlib import aclosing
+from contextlib import aclosing, asynccontextmanager
 import json
 import os
 from pathlib import Path
@@ -35,11 +35,17 @@ class ChatMessage(BaseModel):
     content: str = Field(min_length=1, max_length=16000)
 
 
+class FeasibilityApproval(BaseModel):
+    assessment_id: str = Field(min_length=32, max_length=32, pattern=r'^[0-9a-f]+$')
+    choice: Literal['hardware_only', 'cancel', 'revise']
+
+
 class ChatRequest(BaseModel):
     messages: list[ChatMessage] = Field(min_length=1, max_length=200)
     project_id: str | None = Field(default=None, max_length=128)
     runtime_token: str | None = Field(default=None, max_length=128)
     project_answers: dict[str, str] | None = None
+    approval: FeasibilityApproval | None = None
     provider: Literal['groq', 'nvidia', 'bedrock', 'azure'] = 'groq'
 
     @field_validator('project_answers')
@@ -84,7 +90,13 @@ def event(kind: str, **values) -> str:
 
 
 def create_app(model_factory=None, api_key=None):
-    application = FastAPI(title='WireUp LangChain API')
+    @asynccontextmanager
+    async def lifespan(application):
+        yield
+        from backend.remote_projects import remote_projects
+        await remote_projects.shutdown()
+
+    application = FastAPI(title='WireUp LangChain API', lifespan=lifespan)
     application.add_middleware(SecurityMiddleware)
     application.state.model_factory = model_factory
     application.include_router(hardware_router)
@@ -138,7 +150,7 @@ def create_app(model_factory=None, api_key=None):
             if len(selected) < len(payload.messages):
                 yield event('text', channel='narration', text='Older messages were omitted from model context.\n')
             plain = not payload.project_id and not any(word in payload.messages[-1].content.lower() for word in ('calculate', 'calculator', 'compute')) and application.state.model_factory is None
-            stream = stream_plain_chat(model, history, timeout_seconds=300 if provider == 'bedrock' else 30) if plain else stream_agent(model, history, payload.project_id, payload.runtime_token, requirements=payload.project_answers)
+            stream = stream_plain_chat(model, history, timeout_seconds=300 if provider == 'bedrock' else 30) if plain else stream_agent(model, history, payload.project_id, payload.runtime_token, requirements=payload.project_answers, approval=payload.approval.model_dump() if payload.approval else None)
             async with aclosing(stream) as agent:
                 pending = asyncio.create_task(anext(agent, None))
                 try:

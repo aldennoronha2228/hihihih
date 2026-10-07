@@ -31,6 +31,7 @@ const picoModules = import.meta.glob<{ RP2040Simulator: new (pins: PinManager) =
 const RP2040Simulator = picoModules['../../vendor/velxio/frontend/src/simulation/RP2040Simulator.ts'].RP2040Simulator
 const SAMPLE_CAPACITY = 8192
 const AVR_BOARDS = new Set(['arduino-uno', 'arduino-nano', 'arduino-mega'])
+const PICO_BOARDS = new Set(['pi-pico', 'pi-pico-w'])
 
 export function connectedEndpoints(project: HardwareProject, endpoint: WireEndpoint): WireEndpoint[] {
   const key = (pin: WireEndpoint) => `${pin.component}:${pin.pin}`
@@ -58,12 +59,12 @@ export function boardPin(board: string, name: string): number | null {
     if (/^(?:GPIO|GP|D)?(?:[0-9]|1[0-9]|2[01])$/.test(name)) return Number(name.replace(/^(?:GPIO|GP|D)/, ''))
     return null
   }
-  if (board === 'pi-pico') {
-    if (name === 'LED_BUILTIN') return 25
+  if (PICO_BOARDS.has(board)) {
+    if (name === 'LED_BUILTIN') return board === 'pi-pico' ? 25 : null
     if (name === 'TX') return 0
     if (name === 'RX') return 1
     if (/^A[0-3]$/.test(name)) return 26 + Number(name.slice(1))
-    if (/^(?:GP|GPIO|D)?(?:[0-9]|[12][0-9])$/.test(name)) return Number(name.replace(/^(?:GP|GPIO|D)/, ''))
+    if (/^(?:GP|GPIO|D)?(?:[0-9]|[12][0-9])$/.test(name)) return Number(name.replace(/^(?:GPIO|GP|D)/, ''))
     return null
   }
   if (!AVR_BOARDS.has(board)) return null
@@ -89,7 +90,7 @@ export function unoPin(name: string): number | null { return boardPin('arduino-u
 function channelName(board: string, pin: number): string | null {
   if (!Number.isInteger(pin) || pin < 0) return null
   if (board === 'esp32-c3') return pin < 22 ? `GPIO${pin}` : null
-  if (board === 'pi-pico') return pin < 30 ? `GP${pin}` : null
+  if (PICO_BOARDS.has(board)) return pin < 30 ? `GP${pin}` : null
   const digital = board === 'arduino-mega' ? 54 : 14
   const analog = board === 'arduino-mega' ? 16 : 6
   return pin < digital ? `D${pin}` : pin < digital + analog ? `A${pin - digital}` : null
@@ -106,7 +107,7 @@ function artifactPayload(artifact: RuntimeArtifact, legacy: 'hex' | 'bin'): stri
 }
 
 export function validateRuntimeArtifact(project: HardwareProject, artifact: RuntimeArtifact): string {
-  if (!AVR_BOARDS.has(project.board) && project.board !== 'pi-pico' && project.board !== 'esp32-c3') throw new Error(`Unsupported browser simulation board: ${project.board}.`)
+  if (!AVR_BOARDS.has(project.board) && !PICO_BOARDS.has(project.board) && project.board !== 'esp32-c3') throw new Error(`Unsupported browser simulation board: ${project.board}.`)
   if (artifact.board !== project.board) throw new Error('Firmware artifact board does not match the selected board.')
   if (artifact.source_revision !== project.firmware.revision) throw new Error('Firmware artifact is stale. Compile the current project first.')
   if (AVR_BOARDS.has(project.board)) {
@@ -121,7 +122,7 @@ export function validateRuntimeArtifact(project: HardwareProject, artifact: Runt
     validateC3Artifact(artifact, payload)
     return payload
   }
-  if (artifact.format !== 'bin') throw new Error(`pi-pico requires a raw flash bin artifact, not ${artifact.format}; UF2 is not supported by this loader.`)
+  if (artifact.format !== 'bin') throw new Error(`${project.board} requires a raw flash bin artifact, not ${artifact.format}; UF2 is not supported by this loader.`)
   if (artifact.encoding !== 'base64' || artifact.load_address !== 0x10000000) throw new Error('Pico binary must use base64 encoding at flash address 0x10000000.')
   const payload = artifactPayload(artifact, 'bin')
   if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(payload)) throw new Error('Pico compiler artifact is not valid base64.')
@@ -227,7 +228,7 @@ export class HardwareRuntime {
     this.serialLink = null
     this.artifactId = artifact.id
     this.resetSamples()
-    const simulator: Simulator = project.board === 'esp32-c3' ? new C3Simulator(new PinManager()) : project.board === 'pi-pico' ? new RP2040Simulator(new PinManager()) : new AVRSimulator(new PinManager(), project.board === 'arduino-mega' ? 'mega' : 'uno')
+    const simulator: Simulator = project.board === 'esp32-c3' ? new C3Simulator(new PinManager()) : PICO_BOARDS.has(project.board) ? new RP2040Simulator(new PinManager()) : new AVRSimulator(new PinManager(), project.board === 'arduino-mega' ? 'mega' : 'uno')
     this.simulator = simulator
     const previousSerial = simulator.onSerialData
     const captureSerial = (char: string, uart?: number) => {
@@ -281,8 +282,8 @@ export class HardwareRuntime {
   stop() { this.startupVersion++; this.simulator?.stop(); this.publish() }
 
   getChannels(): string[] {
-    if (!this.project || (!AVR_BOARDS.has(this.project.board) && this.project.board !== 'pi-pico' && this.project.board !== 'esp32-c3')) return []
-    const count = this.project.board === 'esp32-c3' ? 22 : this.project.board === 'pi-pico' ? 30 : this.project.board === 'arduino-mega' ? 70 : 20
+    if (!this.project || (!AVR_BOARDS.has(this.project.board) && !PICO_BOARDS.has(this.project.board) && this.project.board !== 'esp32-c3')) return []
+    const count = this.project.board === 'esp32-c3' ? 22 : PICO_BOARDS.has(this.project.board) ? 30 : this.project.board === 'arduino-mega' ? 70 : 20
     return Array.from({ length: count }, (_, pin) => channelName(this.project!.board, pin)!)
   }
 
@@ -397,7 +398,7 @@ export class HardwareRuntime {
       const channel = this.readChannel(pin)
       pins[pin] = { level: channel.level, drive: channel.drive }
     }
-    const pico = this.project?.board === 'pi-pico'
+    const pico = PICO_BOARDS.has(this.project?.board ?? '')
     const c3 = this.project?.board === 'esp32-c3'
     return {
       running: simulator?.isRunning() ?? false, engine: c3 ? 'Velxio Esp32C3Simulator / RiscVCore (experimental)' : pico ? 'Velxio RP2040Simulator / rp2040js' : 'Velxio AVRSimulator / avr8js', artifact_id: this.artifactId,
@@ -405,6 +406,7 @@ export class HardwareRuntime {
       board: this.project?.board ?? null, clock_hz: clock, samples: this.getSamples().slice(-256), sample_capacity: SAMPLE_CAPACITY, dropped_samples: this.droppedSamples,
       limitations: [
         c3 ? 'Experimental ESP32-C3 RV32IMC execution at a nominal 160 MHz uses the vendor core and public ROM; upstream peripheral/ROM coverage is incomplete and Arduino firmware execution is not certified. RTC image segments are not mapped upstream. GPIO drive direction is not reported; UART0 only, no USB CDC or wireless.' : pico ? 'RP2040 GPIO, UART0, timers and ADC use the real single-core emulator at 125 MHz; USB CDC, second core and wireless are not supported.' : 'Uno/Nano ATmega328P or Mega ATmega2560 GPIO, UART0, timers and ADC use the real AVR emulator at 16 MHz; Nano A6/A7 are analog-only, not digital channels.',
+        ...(this.project?.board === 'pi-pico-w' ? ['Pico W compatibility is RP2040 CPU and external GPIO/UART0 only. CYW43 radio, WiFi, Bluetooth and the CYW43-controlled onboard LED are not emulated; firmware that initializes CYW43 may stall. GP25 is not the Pico W onboard LED.'] : []),
         'Digital edge capture uses simulator timestamps; the bounded shared ring drops oldest edges on overrun. Unobserved levels are unknown.',
         'LED wiring is digital continuity only; resistor current and analog/SPICE measurements are not modeled by this runtime.',
         'Only LEDs and rail-connected pushbuttons have peripheral behavior here; other catalog parts are placement-only.',

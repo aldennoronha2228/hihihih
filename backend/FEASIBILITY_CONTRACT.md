@@ -1,0 +1,7 @@
+# Feasibility service contract
+Parent implements backend/feasibility.py after worker tool failure.
+assess(service, project_id, plan) synchronous -> report {id,project_id,revision,status:'approved'|'awaiting_approval'|'blocked',summary,issues:[{code,title,message,reason,alternative}],choices:[{id,label,description}],plan:{board,parts:[{type,quantity}],behavior,libraries,operations}}. Internal state saved _feasibility excluded public; no visible mutation/revision. Simple safe plan no issue approved automatically. Any issues require choice before mutations.
+authorize(service,project_id,{assessment_id,choice}) -> report with status approved/cancelled/revise; hardware_only only if all pins known, blocked parts never approved. validate_approval(service,project_id,id) -> approved report, rejects stale base revision/expired. Record revision progression after agent mutations via advance(service,project_id,id,old_revision,new_revision).
+check_operation(service,project_id,id,name,args) validates approval, permitted board/types; wire endpoints always canonical service; no unsupported type via consent. wire_circuit/from aliases preserve.
+Choice keys hardware_only,cancel,revise. Alternatives informational require revised plan not blind substitution. Raw calls can't bypass. Server id TTL1800s bounded5records.
+Frontend event {type:'feasibility', **report}; ChatRequest approval {assessment_id,choice}. Approved continuation retains original requirements and sends 'Proceed with reviewed project plan'. on cancel/revise emits terminal no model changes.

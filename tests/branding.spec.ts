@@ -15,7 +15,7 @@ for (const width of [1440, 390]) {
     await expect(page.getByRole('link', { name: 'WireUp', exact: true })).toBeVisible()
     if (width < 768) await page.getByRole('button', { name: 'Close sidebar' }).click()
     await page.getByRole('textbox', { name: 'Message WireUp' }).fill('Hello')
-    await page.getByRole('button', { name: 'Send', exact: true }).click()
+    await page.getByRole('button', { name: 'Send message', exact: true }).click()
     await expect(page.getByRole('article', { name: 'WireUp message' })).toContainText('Hello from WireUp')
     await expect(page.getByRole('article', { name: 'WireUp message' }).locator('img')).toBeVisible()
     await page.screenshot({ path: `test-results/wireup-${width}.png` })

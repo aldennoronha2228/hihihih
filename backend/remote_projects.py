@@ -10,6 +10,19 @@ class RemoteProjectRuntimes:
         self.sessions = {}
         self.lock = asyncio.Lock()
 
+    async def shutdown(self):
+        sessions = list(self.sessions.items())
+        try:
+            async with self.client_factory() as client:
+                for project_id, session in sessions:
+                    try:
+                        await client.stop(session)
+                        self.sessions.pop(project_id, None)
+                    except RemoteSimulationError:
+                        continue
+        except RemoteSimulationError:
+            pass
+
     async def command(self, project, name, artifact=None):
         if project['board'] not in BOARD_IDS:
             raise HTTPException(503, 'This board has no implemented remote emulator adapter.')
@@ -27,6 +40,9 @@ class RemoteProjectRuntimes:
                         session = result.get('id') or result.get('session_id')
                         if not session:
                             raise RemoteSimulationError('Remote emulator did not return a session ID.')
+                        if result.get('state') != 'running':
+                            await client.stop(session)
+                            raise RemoteSimulationError('Remote emulator did not acknowledge a running session.')
                         self.sessions[project['id']] = session
                         return result
                     session = self.sessions.get(project['id'])

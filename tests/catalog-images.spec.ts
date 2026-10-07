@@ -16,10 +16,10 @@ for (const width of [1440, 390]) {
       const result = await (await request.get(`/api/hardware/catalog?q=${encodeURIComponent(query)}&limit=200`)).json()
       const expected = [...result.components, ...result.boards].filter((part, index, all) => all.findIndex(other => (other.id || other.type) === (part.id || part.type)) === index)
       await expect(page.locator('.hw-catalog-card')).toHaveCount(expected.length)
-      const cards = page.locator('.hw-catalog-card')
-      for (let index = 0; index < expected.length; index++) {
-        const image = cards.nth(index).locator('img').first()
-        await cards.nth(index).scrollIntoViewIfNeeded()
+      for (const part of expected) {
+        const card = page.getByRole('button', { name: new RegExp(`^Add ${part.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} `) }).first()
+        const image = card.locator('img').first()
+        await card.scrollIntoViewIfNeeded()
         await expect(image).toBeVisible()
         await expect.poll(() => image.evaluate(element => (element as HTMLImageElement).naturalWidth)).toBeGreaterThan(0)
       }

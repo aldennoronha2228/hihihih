@@ -1,68 +1,111 @@
-import { useLayoutEffect, useRef, useState } from 'react'
-import type { PointerEvent as ReactPointerEvent } from 'react'
-import { ArrowUp, ChevronDown, LoaderCircle, Square } from 'lucide-react'
+import { useMemo, useRef } from 'react'
+import { Cable, Cpu, GitCompare, Lightbulb } from 'lucide-react'
+import { AiPromptInput } from './ai-prompt-input'
+import type { AiModel } from './ai-prompt-input'
 import type { ModelOption, ModelProvider } from '@/lib/model-selection'
-import { Textarea } from './textarea'
 
-type Props = { value: string; onChange: (value: string) => void; onSend: () => void; onStop: () => void; busy: boolean; provider?: ModelProvider; models?: ModelOption[]; onProviderChange?: (provider: ModelProvider) => void }
+type Props = {
+  value: string; onChange: (value: string) => void
+  onSend: (text?: string) => void; onStop: () => void; busy: boolean
+  provider?: ModelProvider; models?: ModelOption[]; onProviderChange?: (provider: ModelProvider) => void; compact?: boolean
+}
 
-const autoMinHeight = 56
-const autoMaxHeight = 200
-const manualMinHeight = 72
-const manualMaxHeight = 560
+const quickPrompts = [
+  { id: 'microcontrollers', label: 'List compatible microcontrollers for simulation', icon: <Cpu aria-hidden /> },
+  { id: 'led', label: 'Explain how to connect an LED to Arduino Uno', icon: <Lightbulb aria-hidden /> },
+  { id: 'compare', label: 'Compare Arduino Uno and ESP32 capabilities', icon: <GitCompare aria-hidden /> },
+  { id: 'wiring', label: 'Review my circuit wiring and suggest fixes', icon: <Cable aria-hidden /> },
+] as const
 
-export function ChatComposer({ value, onChange, onSend, onStop, busy, provider, models, onProviderChange }: Props) {
-  const ref = useRef<HTMLTextAreaElement>(null)
-  // Fixed height is set by dragging the top edge; double-click returns to auto-grow.
-  const [fixedHeight, setFixedHeight] = useState<number | null>(null)
-  const grip = useRef<{ startY: number; startHeight: number } | null>(null)
-  useLayoutEffect(() => {
-    if (fixedHeight !== null || !ref.current) return
-    ref.current.style.height = '0px'
-    ref.current.style.height = `${Math.min(autoMaxHeight, Math.max(autoMinHeight, ref.current.scrollHeight))}px`
-  }, [value, fixedHeight])
-  const onGripDown = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0 || !ref.current) return
-    event.preventDefault()
-    grip.current = { startY: event.clientY, startHeight: ref.current.offsetHeight }
-    event.currentTarget.setPointerCapture(event.pointerId)
-    document.body.classList.add('chat-resizing-row')
+const placeholders = [
+  'Ask anything…',
+  'List boards that simulate in the browser…',
+  'Explain how to wire a pull-up resistor…',
+  'Describe the firmware you need…',
+] as const
+
+type SpeechRecognitionLike = { continuous: boolean; interimResults: boolean; lang: string; onresult: (event: { resultIndex: number; results: ArrayLike<{ isFinal: boolean; 0: { transcript: string } }> }) => void; onerror: () => void; start: () => void; stop: () => void }
+
+export function ChatComposer({ value, onChange, onSend, onStop, busy, provider, models, onProviderChange, compact = false }: Props) {
+  const fileInput = useRef<HTMLInputElement>(null)
+  const recognition = useRef<SpeechRecognitionLike | null>(null)
+  const transcript = useRef('')
+
+  // Map the backend's health-checked providers onto the selector; unconfigured
+  // providers stay visible but disabled, with the missing key called out.
+  const aiModels = useMemo<AiModel[]>(() => (models ?? []).map(option => ({
+    id: option.id,
+    label: !option.model || /^Configured /.test(option.model) ? option.label : option.model.split('/').pop() || option.model,
+    description: `${option.label} · ${option.model}${option.configured ? '' : ' — add its API key to .env to enable'}`,
+    disabled: !option.configured,
+  })), [models])
+
+  const onDictationChange = (listening: boolean) => {
+    if (!listening) {
+      try { recognition.current?.stop() } catch { /* already stopped */ }
+      return
+    }
+    const source = (window as unknown as { SpeechRecognition?: new () => SpeechRecognitionLike; webkitSpeechRecognition?: new () => SpeechRecognitionLike })
+    const SpeechRecognition = source.SpeechRecognition ?? source.webkitSpeechRecognition
+    if (!SpeechRecognition) return
+    const session = new SpeechRecognition()
+    session.continuous = true
+    session.interimResults = false
+    session.lang = navigator.language
+    transcript.current = ''
+    session.onresult = event => {
+      for (let index = event.resultIndex; index < event.results.length; index++) {
+        if (event.results[index].isFinal) transcript.current += `${event.results[index][0].transcript} `
+      }
+    }
+    session.onerror = () => { /* transcript simply stays partial */ }
+    session.start()
+    recognition.current = session
   }
-  const onGripMove = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (!grip.current) return
-    const next = Math.round(Math.min(manualMaxHeight, Math.max(manualMinHeight, grip.current.startHeight - (event.clientY - grip.current.startY))))
-    setFixedHeight(next)
+  const getDictationTranscript = () => {
+    const text = transcript.current.trim()
+    transcript.current = ''
+    try { recognition.current?.stop() } catch { /* already stopped */ }
+    return text
   }
-  const onGripEnd = () => {
-    grip.current = null
-    document.body.classList.remove('chat-resizing-row')
+
+  const readFile = (file: File | undefined) => {
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => {
+      const text = String(reader.result ?? '').slice(0, 12000)
+      if (!text.trim()) return
+      const attached = `${file.name}:\n${text}`
+      onChange(value.trim() ? `${value.trimEnd()}\n\n${attached}` : attached)
+    }
+    reader.readAsText(file)
   }
+
   return (
-    <form onSubmit={event => { event.preventDefault(); if (!busy) onSend() }} className="relative rounded-xl border border-neutral-800 bg-neutral-900 shadow-lg shadow-black/30 transition-colors focus-within:border-neutral-600">
-      <div role="separator" aria-orientation="horizontal" aria-label="Resize message box" title="Drag to resize — double-click to reset"
-        onPointerDown={onGripDown} onPointerMove={onGripMove} onPointerUp={onGripEnd} onPointerCancel={onGripEnd} onDoubleClick={() => setFixedHeight(null)}
-        className="absolute inset-x-0 -top-2 z-10 h-2.5 cursor-row-resize touch-none after:absolute after:left-1/2 after:top-0 after:h-[3px] after:w-7 after:-translate-x-1/2 after:rounded-full after:bg-neutral-600/0 hover:after:bg-neutral-600/70" />
-      <Textarea ref={ref} aria-label="Message WireUp" placeholder="Ask anything…" value={value} maxLength={16000}
-        onChange={event => onChange(event.target.value)} onKeyDown={event => {
-          if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
-            event.preventDefault()
-            if (!busy) onSend()
-          }
-        }} className="min-h-[56px] resize-none border-0 bg-transparent px-3.5 py-3 text-sm leading-6 text-white placeholder:text-neutral-500 focus-visible:outline-none focus-visible:ring-0" style={fixedHeight !== null ? { height: fixedHeight, overflowY: 'auto' } : { overflowY: 'auto' }} />
-      <div className="flex items-center justify-between gap-3 px-2.5 pb-2 pt-0.5">
-        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5">
-          {provider && models && onProviderChange && (
-            <div className="relative min-w-0">
-              <select aria-label="Chat model" value={provider} disabled={busy} onChange={event => onProviderChange(event.target.value as ModelProvider)} className="max-w-[220px] appearance-none rounded-md border border-neutral-800 bg-neutral-900 py-1 pl-2 pr-7 text-[11px] font-medium text-neutral-300 outline-none transition-colors hover:border-neutral-600 focus-visible:border-neutral-500 disabled:cursor-not-allowed disabled:opacity-50">{models.map(option => <option key={option.id} value={option.id}>{option.label} · {option.model}{option.configured ? '' : ' (key needed)'}</option>)}</select>
-              <ChevronDown size={13} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-neutral-500" />
-            </div>
-          )}
-          {busy ? <span className="flex items-center gap-2 text-[11px] font-medium text-neutral-400"><LoaderCircle size={12} className="animate-spin" />Generating…</span>
-            : <span className="hidden items-center gap-1.5 text-[11px] text-neutral-600 sm:flex"><kbd className="rounded border border-neutral-800 bg-neutral-900 px-1.5 py-px font-sans text-[10px] font-medium text-neutral-500">Shift + Enter</kbd>for a new line</span>}
-        </div>
-        {busy ? <button type="button" onClick={onStop} aria-label="Stop generation" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white text-black transition-colors hover:bg-neutral-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500"><Square size={13} fill="currentColor" strokeWidth={0} /></button>
-          : <button type="submit" disabled={!value.trim()} aria-label="Send" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white text-black transition-colors hover:bg-neutral-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-600"><ArrowUp size={17} strokeWidth={2.5} /></button>}
-      </div>
-    </form>
+    <div className={`relative${compact ? ' wireup-composer-compact' : ''}`}>
+      <input ref={fileInput} type="file" hidden aria-hidden tabIndex={-1}
+        accept=".txt,.md,.ino,.c,.cpp,.h,.hpp,.json,.csv"
+        onChange={event => { readFile(event.target.files?.[0]); event.target.value = '' }} />
+      <AiPromptInput
+        value={value}
+        onChange={onChange}
+        onSubmit={text => onSend(text)}
+        onStop={busy ? onStop : undefined}
+        status={busy ? 'loading' : 'idle'}
+        maxLength={16000}
+        maxRows={compact ? 4 : 8}
+        minRows={1}
+        className={compact ? 'wireup-prompt-compact' : undefined}
+        placeholders={placeholders}
+        models={aiModels}
+        modelSelection={provider ? { id: provider } : undefined}
+        onModelSelectionChange={selection => onProviderChange?.(selection.id as ModelProvider)}
+        customActions={quickPrompts.map(prompt => ({ ...prompt, onSelect: () => onChange(value.trim() ? `${value.trimEnd()} ${prompt.label}` : prompt.label) }))}
+        onUploadFile={() => fileInput.current?.click()}
+        getDictationTranscript={getDictationTranscript}
+        onDictationChange={onDictationChange}
+        aria-label="Message WireUp"
+      />
+    </div>
   )
 }

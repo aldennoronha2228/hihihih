@@ -115,19 +115,19 @@ test('flat schematic renders canonical wires, actual readings, selection, and pi
     document.body.style.background = '#0c1117'
     document.body.append(host)
     dom.default.createRoot(host).render(react.default.createElement(canvas.SchematicCanvas, {
-      project, result, selectedId: 'r1',
+      project, result, showVoltages: true, selectedId: 'r1',
       onSelect: (id: string) => { host.dataset.selected = id },
       onMove: (id: string, x: number, y: number) => { host.dataset.moved = id; host.dataset.position = `${x},${y}` },
       onConnect: (from: { component: string; pin: string }, to: { component: string; pin: string }) => { host.dataset.connection = `${from.component}:${from.pin}-${to.component}:${to.pin}` },
     }))
   }, divider)
-  await expect(page.getByText('ngspice solved')).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Schematic', exact: true })).toBeVisible()
   await expect(page.locator('.schematic-wire')).toHaveCount(4)
-  await expect(page.locator('.schematic-voltage').filter({ hasText: '2.500 V' })).toHaveCount(1)
+  await expect(page.locator('.schematic-voltage').filter({ hasText: '2.50 V' })).toHaveCount(1)
   await page.getByRole('button', { name: 'Select r2, Resistor', exact: true }).click()
   await expect(page.locator('[data-selected="r2"]')).toHaveCount(1)
-  await page.getByRole('button', { name: 'r1 pin 2, connect', exact: true }).click()
-  await page.getByRole('button', { name: 'r2 pin 1, connect', exact: true }).click()
+  await page.getByRole('button', { name: 'r1 pin 2', exact: true }).click()
+  await page.getByRole('button', { name: 'r2 pin 1', exact: true }).click()
   await expect(page.locator('[data-connection="r1:2-r2:1"]')).toHaveCount(1)
   const box = await page.getByRole('button', { name: 'Select r2, Resistor', exact: true }).boundingBox()
   expect(box).not.toBeNull()

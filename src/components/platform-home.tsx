@@ -5,6 +5,7 @@ import { SampleProjects } from './sample-projects'
 import { ProjectList } from './project-list'
 import { GradientOrb } from './ui/gradient-orb'
 import { hardwareApi } from '@/lib/hardware'
+import { projectTitle } from '@/lib/project-title'
 import type { HardwareProjectSummary } from '@/lib/hardware'
 
 export function PlatformHome() {
@@ -19,7 +20,7 @@ export function PlatformHome() {
     setBusy(true)
     setError('')
     try {
-      const project = await hardwareApi.createProject(description ? description.slice(0, 80) : 'Untitled circuit')
+      const project = await hardwareApi.createProject(projectTitle(description))
       navigate(`/project/${project.id}`, { state: { initialPrompt: description } })
     } catch (error) { setError(error instanceof Error ? error.message : 'Could not create your workspace.'); setBusy(false) }
   }

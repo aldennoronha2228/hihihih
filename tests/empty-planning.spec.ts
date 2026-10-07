@@ -21,7 +21,7 @@ for (const width of [1440, 390]) {
     await page.goto(`/project/${project.id}`, { waitUntil: 'domcontentloaded' })
     if (width < 900) await page.getByRole('button', { name: 'Agent', exact: true }).click()
     await page.getByRole('textbox', { name: 'Message WireUp' }).fill('Build a temperature project')
-    await page.getByRole('button', { name: 'Send', exact: true }).click()
+    await page.getByRole('button', { name: 'Send message', exact: true }).click()
     const form = page.getByRole('form', { name: 'Project requirements' })
     await expect(form).toBeVisible()
     expect((await (await request.get(`/api/hardware/projects/${project.id}`)).json()).components).toEqual([])

@@ -216,7 +216,10 @@ def test_chat_project_scope_and_runtime_token(tmp_path, monkeypatch):
     source = 'void setup() {}\nvoid loop() {}'
     model = FakeModel(turns=[
         [tool_chunk('read_project', {}, 'read')],
+        [tool_chunk('assess_project_feasibility', {'plan': {'board': 'arduino-uno', 'parts': [], 'behavior': 'idle', 'libraries': [], 'operations': ['edit_firmware']}}, 'assess')],
         [tool_chunk('edit_firmware', {'source': source, 'expected_revision': 1}, 'edit')],
+        [tool_chunk('read_project', {}, 'readback')],
+        [tool_chunk('validate_circuit', {}, 'validate')],
         [AIMessageChunk(content='Firmware updated.')],
     ])
     client = TestClient(create_app(lambda: model, api_key='test-key'))
@@ -234,15 +237,18 @@ def test_chat_project_scope_and_runtime_token(tmp_path, monkeypatch):
     narration = [item for item in streamed if item['type'] == 'text' and item['channel'] == 'narration']
     assert narration
     progress = [item for item in streamed if item not in narration]
-    assert [item['type'] for item in progress] == ['step_start', 'step_end', 'step_start', 'step_end', 'text', 'done']
+    assert progress[-1]['type'] == 'done'
+    assert any(item['type'] == 'text' and item.get('channel') == 'answer' for item in progress)
     assert progress[-2] == {'type': 'text', 'channel': 'answer', 'text': 'Firmware updated.'}
     starts = [item for item in streamed if item['type'] == 'step_start']
     ends = [item for item in streamed if item['type'] == 'step_end']
-    assert len({item['id'] for item in starts}) == 2
+    assert len({item['id'] for item in starts}) == 5
     assert [item['id'] for item in starts] == [item['id'] for item in ends]
     assert all(item['status'] == 'success' for item in ends)
     assert calls == [(project['id'], 'read_project', project['runtime_token']),
-                     (project['id'], 'edit_firmware', project['runtime_token'])]
+                     (project['id'], 'edit_firmware', project['runtime_token']),
+                     (project['id'], 'read_project', project['runtime_token']),
+                     (project['id'], 'validate_circuit', project['runtime_token'])]
     updated = client.get(f'/api/hardware/projects/{project["id"]}').json()
     assert updated['revision'] == 2
     assert updated['firmware']['source'] == source
@@ -250,7 +256,7 @@ def test_chat_project_scope_and_runtime_token(tmp_path, monkeypatch):
     assert project['runtime_token'] not in response.text
     assert project['runtime_token'] not in str(model.histories)
     assert streamed[-1]['status'] == 'success'
-    assert streamed[-1]['toolCalls'] == 2
+    assert streamed[-1]['toolCalls'] == 5
 
 
 def test_chat_project_scope_validation():
@@ -269,7 +275,7 @@ def test_chat_forwards_project_answers_as_requirements(monkeypatch, answers):
     captured = {}
     model = FakeModel()
 
-    async def stream(model, history, project_id, runtime_token, *, requirements):
+    async def stream(model, history, project_id, runtime_token, *, requirements, approval=None):
         captured.update(model=model, history=history, project_id=project_id,
                         runtime_token=runtime_token, requirements=requirements)
         yield {'type': 'done', 'status': 'success'}
@@ -346,7 +352,10 @@ def test_chat_streams_mcqs_and_waits_for_project_answers(tmp_path, monkeypatch):
     assert [item['type'] for item in progress] == ['step_start', 'step_end', 'questions', 'done']
     assert progress[0]['id'] == progress[1]['id']
     assert progress[1]['status'] == 'success'
-    assert progress[2] == {'type': 'questions', **questions}
+    assert progress[2]['type'] == 'questions'
+    assert progress[2]['summary'] == questions['summary']
+    assert [question['id'] for question in progress[2]['questions']] == [question['id'] for question in questions['questions']]
+    assert all(question['options'][-1]['id'] == 'ai_choose' for question in progress[2]['questions'])
     assert client.get(f'/api/hardware/projects/{project["id"]}').json() == project
     assert streamed[-1]['status'] == 'awaiting_answers'
     assert streamed[-1]['reason'] == 'requirements_required'

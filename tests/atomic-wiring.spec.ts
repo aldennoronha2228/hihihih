@@ -13,9 +13,10 @@ for (const width of [1440, 390]) {
     expect(result.ok()).toBe(true)
     await page.goto(`/project/${project.id}`, { waitUntil: 'domcontentloaded' })
     await expect(page.getByRole('button', { name: 'Select led1', exact: true })).toBeVisible({ timeout: 30000 })
-    await expect(page.locator('.hw-wire')).toHaveCount(3)
+    await expect(page.locator('.hw-wires path')).toHaveCount(3)
     await page.getByRole('tab', { name: 'Schematic', exact: true }).click()
-    await expect(page.getByLabel('Schematic canvas', { exact: true })).toBeVisible()
+    await expect(page.getByRole('complementary', { name: 'Symbol library' })).toBeVisible()
+    await expect(page.getByRole('tab', { name: 'Schematic', exact: true })).toHaveAttribute('aria-selected', 'true')
     expect((await (await request.post(`/api/hardware/project/${project.id}/command`, { data: { name: 'validate_circuit', args: {} } })).json()).valid).toBe(true)
   })
 }

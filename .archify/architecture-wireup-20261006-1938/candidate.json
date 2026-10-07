@@ -1,0 +1,209 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "WireUp high-level architecture",
+    "subtitle": "Local Vite/React workspace with FastAPI orchestration, hardware compilation, and browser simulation",
+    "output": ".archify/architecture-wireup-20261006-1938/wireup-architecture.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/aldennoronha2228/hihihih.git",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "13050d0a84f241aa806c98cd577f439c30b118c8"
+    },
+    "views": [
+      {
+        "id": "request-path",
+        "label": "Request path",
+        "focus": ["user", "spa", "api", "agent", "providers"],
+        "note": "Browser requests enter through Vite and are streamed back from FastAPI."
+      },
+      {
+        "id": "hardware-path",
+        "label": "Hardware path",
+        "focus": ["spa", "hardware", "projects", "compiler", "browser-runtime", "spice"],
+        "note": "Project edits persist to JSON and can compile, simulate, or solve analog circuits."
+      },
+      {
+        "id": "optional-remote",
+        "label": "Remote option",
+        "focus": ["hardware", "remote-runtime"],
+        "note": "Remote simulation is optional and requires configured runtime credentials."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "user",
+      "type": "external",
+      "label": "Engineer",
+      "sublabel": "Browser user",
+      "icon": "person",
+      "pos": [40, 290],
+      "size": [140, 64],
+      "sources": [
+        { "path": "README.md", "line": 12, "end_line": 12, "label": "Local entry point" }
+      ]
+    },
+    {
+      "id": "spa",
+      "type": "frontend",
+      "label": "WireUp SPA",
+      "sublabel": "Vite + React + TypeScript",
+      "tag": "127.0.0.1:5173",
+      "icon": "frontend",
+      "pos": [250, 290],
+      "size": [180, 70],
+      "sources": [
+        { "path": "src/App.tsx", "line": 73, "end_line": 86, "label": "Routes and workspaces" },
+        { "path": "package.json", "line": 6, "end_line": 15, "label": "Dev scripts" },
+        { "path": "vite.config.ts", "line": 7, "end_line": 14, "label": "API and WebSocket proxy" }
+      ]
+    },
+    {
+      "id": "api",
+      "type": "backend",
+      "label": "FastAPI application",
+      "sublabel": "HTTP + NDJSON streaming + WebSocket",
+      "tag": "127.0.0.1:8000",
+      "icon": "backend",
+      "pos": [570, 290],
+      "size": [210, 70],
+      "sources": [
+        { "path": "backend/app.py", "line": 89, "end_line": 113, "label": "App and routes" },
+        { "path": "backend/run.py", "line": 19, "end_line": 30, "label": "Local server" },
+        { "path": "backend/security.py", "line": 94, "end_line": 164, "label": "Request security" }
+      ]
+    },
+    {
+      "id": "agent",
+      "type": "backend",
+      "label": "LangGraph hardware agent",
+      "sublabel": "Tool-scoped project operations",
+      "icon": "backend",
+      "pos": [790, 155],
+      "size": [210, 70],
+      "sources": [
+        { "path": "backend/agent.py", "line": 1, "end_line": 2, "label": "Agent module" },
+        { "path": "backend/agent.py", "line": 31, "end_line": 54, "label": "Tool and safety policy" }
+      ]
+    },
+    {
+      "id": "providers",
+      "type": "cloud",
+      "label": "Model providers",
+      "sublabel": "Groq / NVIDIA / Azure / Bedrock",
+      "icon": "cloud",
+      "pos": [1100, 155],
+      "size": [210, 70],
+      "sources": [
+        { "path": "backend/app.py", "line": 116, "end_line": 129, "label": "Provider selection" },
+        { "path": "backend/models.py", "line": 1, "end_line": 30, "label": "Model adapters" }
+      ]
+    },
+    {
+      "id": "hardware",
+      "type": "backend",
+      "label": "Hardware service",
+      "sublabel": "Catalog, revisions, commands, runtime bridge",
+      "icon": "backend",
+      "pos": [800, 315],
+      "size": [230, 76],
+      "sources": [
+        { "path": "backend/hardware.py", "line": 594, "end_line": 641, "label": "Persistence service" },
+        { "path": "backend/hardware.py", "line": 973, "end_line": 1038, "label": "Hardware API" }
+      ]
+    },
+    {
+      "id": "projects",
+      "type": "database",
+      "label": "Project JSON store",
+      "sublabel": "backend/data/hardware/*.json",
+      "icon": "database",
+      "pos": [1200, 315],
+      "size": [210, 70],
+      "sources": [
+        { "path": "backend/hardware.py", "line": 594, "end_line": 616, "label": "Store location" },
+        { "path": "backend/hardware.py", "line": 617, "end_line": 626, "label": "Atomic save" }
+      ]
+    },
+    {
+      "id": "compiler",
+      "type": "backend",
+      "label": "Arduino compiler",
+      "sublabel": "Arduino CLI + temporary build artifacts",
+      "icon": "backend",
+      "pos": [800, 485],
+      "size": [230, 76],
+      "sources": [
+        { "path": "backend/hardware.py", "line": 383, "end_line": 393, "label": "CLI discovery" },
+        { "path": "backend/hardware.py", "line": 437, "end_line": 475, "label": "Compile process" }
+      ]
+    },
+    {
+      "id": "browser-runtime",
+      "type": "frontend",
+      "label": "Browser MCU runtime",
+      "sublabel": "avr8js / rp2040js via runtime WebSocket",
+      "icon": "frontend",
+      "pos": [1200, 485],
+      "size": [220, 76],
+      "sources": [
+        { "path": "backend/hardware.py", "line": 40, "end_line": 57, "label": "Supported boards" },
+        { "path": "backend/hardware.py", "line": 707, "end_line": 752, "label": "Runtime bridge" },
+        { "path": "src/lib/hardware.ts", "line": 120, "end_line": 132, "label": "Runtime client" }
+      ]
+    },
+    {
+      "id": "spice",
+      "type": "backend",
+      "label": "Analog solver",
+      "sublabel": "In-browser circuit analysis",
+      "icon": "backend",
+      "pos": [510, 485],
+      "size": [210, 70],
+      "sources": [
+        { "path": "src/App.tsx", "line": 28, "end_line": 42, "label": "DC and transient solve" },
+        { "path": "src/hardware/spice.ts", "line": 1, "end_line": 20, "label": "Solver module" }
+      ]
+    },
+    {
+      "id": "remote-runtime",
+      "type": "cloud",
+      "label": "Remote simulation service",
+      "sublabel": "Optional configured emulator",
+      "icon": "cloud",
+      "pos": [1450, 635],
+      "size": [220, 70],
+      "sources": [
+        { "path": "backend/remote_projects.py", "line": 1, "end_line": 8, "label": "Remote client" },
+        { "path": "backend/remote_projects.py", "line": 22, "end_line": 44, "label": "Session lifecycle" }
+      ]
+    }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "Local development machine", "wraps": ["spa", "api", "agent", "hardware", "projects", "compiler", "browser-runtime", "spice"] },
+    { "kind": "security-group", "label": "Loopback-restricted local API", "wraps": ["api", "agent", "hardware"] }
+  ],
+  "connections": [
+    { "id": "user-to-spa", "from": "user", "to": "spa", "label": "HTTP", "variant": "emphasis" },
+    { "id": "spa-to-api", "from": "spa", "to": "api", "label": "REST + WebSocket proxy", "variant": "emphasis" },
+    { "id": "api-to-agent", "from": "api", "to": "agent", "label": "stream chat / tool calls", "fromSide": "top", "toSide": "bottom" },
+    { "id": "agent-to-providers", "from": "agent", "to": "providers", "label": "model inference", "variant": "dashed" },
+    { "id": "api-to-hardware", "from": "api", "to": "hardware", "label": "hardware routes" },
+    { "id": "agent-to-hardware", "from": "agent", "to": "hardware", "label": "validated project tools", "fromSide": "bottom", "toSide": "top" },
+    { "id": "hardware-to-projects", "from": "hardware", "to": "projects", "label": "atomic JSON persistence" },
+    { "id": "hardware-to-compiler", "from": "hardware", "to": "compiler", "label": "compile firmware", "fromSide": "bottom", "toSide": "top" },
+    { "id": "compiler-to-browser", "from": "compiler", "to": "browser-runtime", "label": "HEX / BIN artifact", "variant": "dashed" },
+    { "id": "spa-to-browser", "from": "spa", "to": "browser-runtime", "label": "runtime commands", "variant": "dashed" },
+    { "id": "spa-to-spice", "from": "spa", "to": "spice", "label": "DC / transient solve", "fromSide": "bottom", "toSide": "top" },
+    { "id": "hardware-to-remote", "from": "hardware", "to": "remote-runtime", "label": "optional remote sessions", "variant": "dashed" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "Entry and orchestration", "items": ["The Vite dev server serves the SPA and proxies /api plus WebSockets to FastAPI.", "FastAPI streams chat events as NDJSON and mounts hardware/sample routers."] },
+    { "dot": "emerald", "title": "Hardware lifecycle", "items": ["LangGraph tools operate on a project-scoped revision and runtime token.", "HardwareService atomically persists canonical project JSON and serializes compilation with a gate."] },
+    { "dot": "violet", "title": "Execution modes", "items": ["Arduino CLI produces temporary firmware artifacts.", "Supported AVR and RP2040 boards execute in the browser; remote simulation is an optional configured path."] },
+    { "dot": "rose", "title": "Trust boundary", "items": ["Local chat and hardware routes enforce loopback access through local_connection.", "Production preparation exists, but the repository status notes that public multi-user authorization is not complete."] }
+  ]
+}

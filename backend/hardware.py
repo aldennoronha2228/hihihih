@@ -54,9 +54,10 @@ BOARDS = [
 ]
 BOARDS.extend([
     {'id': 'pi-pico-w', 'name': 'Raspberry Pi Pico W', 'fqbn': 'rp2040:rp2040:rpipicow',
-     'compile': True, 'simulation': 'unavailable', 'format': 'bin', 'runtime': 'rp2040js',
+     'compile': True, 'simulation': 'browser', 'format': 'bin', 'runtime': 'rp2040js',
+     'simulation_scope': 'RP2040 CPU, external GPIO, UART0; no CYW43 radio or onboard LED',
      'tagName': 'wokwi-pi-pico-w', 'compile_timeout_seconds': 300, 'wifi': False, 'bluetooth': False,
-     'unavailable_reason': 'Pico W runtime is not configured; the CYW43 radio is not emulated.'},
+     'unavailable_reason': 'Pico W CPU and external GPIO/UART0 are supported; CYW43 WiFi/Bluetooth and its onboard LED are not emulated.'},
 ])
 for board_id, name, target, chip, bootloader_offset in [
     ('esp32-devkit-v1', 'ESP32 DevKit V1', 'esp32doit-devkit-v1', 'esp32', 0x1000),
@@ -627,7 +628,7 @@ class HardwareService:
         project = {'id': uuid.uuid4().hex, 'schema_version': 1, 'revision': 1, 'name': name.strip(),
                    'board': board, 'components': [] if board == 'unselected' else [{'id': 'board', 'type': board, 'x': 120, 'y': 100,
                                                    'rotation': 0, 'properties': {}}], 'wires': [],
-                   'firmware': {'filename': 'sketch.ino', 'source': '' if board == 'unselected' else DEFAULT_BOARD_SOURCES.get(board, DEFAULT_SOURCE), 'revision': 1},
+                   'firmware': {'filename': 'main.py' if board.startswith('raspberry-pi-') else 'sketch.ino', 'source': '' if board == 'unselected' or board.startswith('raspberry-pi-') else DEFAULT_BOARD_SOURCES.get(board, DEFAULT_SOURCE), 'revision': 1},
                    'history': [], '_undo': [], 'compiler': None, '_artifacts': {},
                    'runtime_token': secrets.token_urlsafe(32), 'created_at': now(), 'updated_at': now()}
         with self.lock:
@@ -703,7 +704,22 @@ class HardwareService:
         if not isinstance(pin, str):
             fail(400, 'Pin names must be strings.')
         pin = PIN_ALIASES.get(component['type'], {}).get(pin, pin)
-        if pin not in self.catalog.components[component['type']]['pins']:
+        available = self.catalog.components[component['type']]['pins']
+        if component['type'] in BOARD_CONFIG and pin not in available:
+            candidates = []
+            digital = re.fullmatch(r'D(\d+)', pin)
+            if digital:
+                candidates.append(digital.group(1))
+            elif pin.isdecimal():
+                candidates.append('D' + pin)
+            if pin == 'GND':
+                candidates.append('GND.1')
+            if pin == '3V3':
+                candidates.append('3.3V')
+            elif pin == '3.3V':
+                candidates.append('3V3')
+            pin = next((candidate for candidate in candidates if candidate in available), pin)
+        if pin not in available:
             fail(400, 'Unknown component pin or unavailable pin layout.')
         return {'component': endpoint['component'], 'pin': pin}
 
@@ -730,7 +746,8 @@ class HardwareService:
                     if any(wire['from']['component'] == 'board' or wire['to']['component'] == 'board' for wire in project['wires']):
                         fail(409, 'Remove wires attached to the current board before replacing the microcontroller.')
                     if not project['firmware']['source'] or project['firmware']['source'] == DEFAULT_BOARD_SOURCES.get(project['board'], DEFAULT_SOURCE):
-                        project['firmware']['source'] = DEFAULT_BOARD_SOURCES.get(kind, DEFAULT_SOURCE)
+                        project['firmware']['source'] = '' if kind.startswith('raspberry-pi-') else DEFAULT_BOARD_SOURCES.get(kind, DEFAULT_SOURCE)
+                        project['firmware']['filename'] = 'main.py' if kind.startswith('raspberry-pi-') else 'sketch.ino'
                     placement = {key: numeric(args[key]) for key in ('x', 'y', 'rotation') if key in args}
                     board.update(type=kind, properties={}, **placement)
                     project['board'] = kind
@@ -750,8 +767,9 @@ class HardwareService:
                     fail(409, 'Component identifier already exists.')
                 properties = copy.deepcopy(self.catalog.components[kind].get('defaultValues', {}))
                 properties.update(self._properties(kind, args.get('properties', {})))
-                project['components'].append({'id': component_id, 'type': kind, 'x': numeric(args.get('x', 300)),
-                                               'y': numeric(args.get('y', 100)), 'rotation': numeric(args.get('rotation', 0)),
+                placement_index = max(0, len(project['components']) - 1)
+                project['components'].append({'id': component_id, 'type': kind, 'x': numeric(args.get('x', 380 + (placement_index % 3) * 180)),
+                                               'y': numeric(args.get('y', 100 + (placement_index // 3) * 140)), 'rotation': numeric(args.get('rotation', 0)),
                                                'properties': properties})
             elif name in ('remove_component', 'modify_component'):
                 component = self._component(project, args.get('id'))
@@ -802,7 +820,7 @@ class HardwareService:
                     fail(409, 'There is no mutation to undo.')
                 restored = project['_undo'].pop()
                 source_revision = project['firmware']['revision']
-                changed_source = restored['firmware']['source'] != project['firmware']['source']
+                changed_source = (restored['firmware']['source'] != project['firmware']['source'] or restored['firmware']['filename'] != project['firmware']['filename'] or restored['board'] != project['board'])
                 project.update(restored)
                 project['firmware']['revision'] = source_revision + int(changed_source)
             else:
@@ -868,6 +886,8 @@ class HardwareService:
                 finally:
                     self.compile_gate.release()
             except HTTPException as error:
+                if error.status_code == 503 and 'busy' in str(error.detail).lower():
+                    raise
                 compilation_error = error
                 result = {'status': 'error', 'stdout': '', 'stderr': str(error.detail),
                           'errors': [str(error.detail)], 'source': project['firmware']['source'],
@@ -897,6 +917,8 @@ class HardwareService:
                 fail(503, board['unavailable_reason'] if board else 'This board has no configured runtime.')
             runtime_args = {}
             if name == 'run_simulation':
+                if project['board'] == 'pi-pico-w' and re.search(r'\b(?:WiFi|Bluetooth|cyw43|LED_BUILTIN)\b', project['firmware']['source'], re.I):
+                    fail(503, 'Pico W browser simulation supports external GPIO and UART0 only. This firmware uses the unimplemented CYW43 radio or onboard LED; use external GPIO firmware or real hardware.')
                 compiled = project['compiler']
                 artifact_id = args.get('artifact_id')
                 if artifact_id:

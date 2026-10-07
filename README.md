@@ -69,12 +69,26 @@ Six home-page starters open independent prewired copies: Serial Hello World, Uno
 - Circuit/Schematic representations of the same project; no Builder/Studio switch.
 - Sketch drawer for firmware editing; save/undo, real Compile, Run/Stop, serial and diagnostics.
 - Canonical project data persists under ignored `backend/data/hardware/`; revision checks prevent stale edits from overwriting changes.
-- Supported local MCU targets: Arduino Uno, Nano, Mega, Raspberry Pi Pico. Click a supported board in the catalog to replace the current MCU while preserving stable `board` ID. Remove attached wires first; replacement invalidates compilation. Multiple simultaneously emulated MCUs are not supported by this project adapter.
+- Supported local MCU targets: Arduino Uno, Nano, Mega, Raspberry Pi Pico, and limited Pico W CPU/external GPIO/UART0 (no CYW43 wireless or onboard LED). Click a supported board in the catalog to replace the current MCU while preserving stable `board` ID. Remove attached wires first; replacement invalidates compilation. Multiple simultaneously emulated MCUs are not supported by this project adapter.
 - ESP32 QEMU is not configured, so ESP32 simulation is unavailable even though upstream Velxio advertises it in its container/hosted builds.
+
+## Release preparation and remote simulation
+
+`RELEASE_STATUS.md` separates verified local features from public-deployment blockers. Request admission/body limits/security headers are mounted in the local API. Production mode requires explicit authentication settings, but shared-token auth is not a complete multi-user/project ownership system and browser login/WebSocket tickets are not finished. Compiler isolation is still required before accepting untrusted source publicly.
+
+`deployment/local-production` contains a TLS/container reference. `deployment/remote-simulation` contains an authenticated, bounded ESP QEMU service and smoke script; configure its HTTPS endpoint and server-only token only after deployment. `backend/remote_projects.py` bridges project run/read/stop to that service. No remote server is provisioned here, Docker builds are unverified, and Linux Pi runtimes/guest images are not implemented. The genuine C3 browser adapter is experimental: the real Arduino firmware smoke test failed, so it is not advertised as working simulation.
+
+## Beginner feasibility and permission
+
+After requirements MCQs, the hardware agent must assess the full plan before placing any board or changing wires/firmware. `assess_project_feasibility` compares requested parts against actual catalog pins and implemented runtime behavior. The chat displays a **Before we build** card with plain-language reasons, choices to revise/cancel, and hardware-only continuation only when known pins permit it. Unknown joystick pins cannot be made valid through consent; unsupported servo motion is disclosed before work.
+
+Reviews use server-issued project/revision-bound IDs and expire after 30 minutes. Mutations are restricted to reviewed operations, part types and quantities; changed projects require reassessment. Readback and limited circuit validation run before success, and known connection errors block compile/run. Final validation permits up to two correction passes; compiler retries permit at most two corrections. These are bounded checks, not complete electronics expertise or physical safety certification.
+
+Paused assistant messages with no answer content are excluded from follow-up model history, avoiding invalid empty-message requests. Validation failures now show the exact request field instead of a generic 422. A live provider attempt at the new gate failed before assessment; deterministic service/agent/browser tests are separate from real provider success.
 
 ## Agent and project questions
 
-The request-local LangGraph binds 16 real domain tools: project read, catalog search, component add/remove/modify, wire connect/remove, firmware generate/read/edit, compile, simulation run/stop/results, compiler diagnostics, calculator. `ask_project_questions` adds the project-understanding stage.
+The request-local LangGraph binds 16 real domain tools: project read, catalog search, component add/remove/modify, wire connect/remove, firmware generate/read/edit, compile, simulation run/stop/results, compiler diagnostics, calculator. `ask_project_questions` adds the project-understanding stage. `wire_circuit` adds atomic validated wire batches, `validate_circuit` reports limited known rail/LED topology diagnostics, and `search_example_requirements` consults all analyzed examples. Validation is not a general electrical-safety certification. Confirmation answers are persisted per conversation/project rather than shared between chats.
 
 Initial project build prompts pause with a compact multiple-choice card. Confirming choices sends actual selected requirements to the same project's agent, which can mutate the circuit and firmware through the same services as manual controls. Read-before-mutation and revisions are enforced. Limits: 60 tool calls, 48 model calls, 300 seconds. Tool failures and provider failures are reported; the UI must not imply that advice alone built a project.
 

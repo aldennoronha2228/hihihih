@@ -27,7 +27,8 @@ def test_empty_project_first_board_placement_and_undo(tmp_path, board):
     assert placed['board'] == board
     assert placed['components'] == [{'id': 'board', 'type': board, 'x': 400, 'y': 250,
                                       'rotation': 90, 'properties': {}}]
-    assert placed['firmware']['source'] == DEFAULT_BOARD_SOURCES.get(board, DEFAULT_SOURCE)
+    assert placed['firmware']['source'] == ('' if board.startswith('raspberry-pi-') else DEFAULT_BOARD_SOURCES.get(board, DEFAULT_SOURCE))
+    assert placed['firmware']['filename'] == ('main.py' if board.startswith('raspberry-pi-') else 'sketch.ino')
     assert placed['revision'] == placed['firmware']['revision'] == 2
     assert placed['wires'] == []
     assert placed['compiler'] is None
@@ -115,7 +116,7 @@ def test_board_aliases_are_canonicalized(tmp_path, alias, canonical):
 
 
 @pytest.mark.parametrize('board', ['esp32-devkit-v1', 'esp32-devkit-c-v4', 'esp32-s3', 'esp32-c3',
-                                  'pi-pico-w', 'raspberry-pi-3', 'raspberry-pi-4', 'raspberry-pi-5'])
+                                  'raspberry-pi-3', 'raspberry-pi-4', 'raspberry-pi-5'])
 def test_unavailable_boards_never_dispatch_browser_runtime(tmp_path, board):
     class RejectRuntime:
         async def command(self, *args):
@@ -256,9 +257,10 @@ def test_replacement_coordinates_and_default_source_are_board_specific(tmp_path)
     assert changed['firmware']['source'] == custom
 
 
-def test_pico_w_does_not_claim_radio_or_browser_runtime():
+def test_pico_w_reports_verified_cpu_runtime_without_radio():
     entry = HardwareService().catalog.components['pi-pico-w']
     assert entry['fqbn'] == 'rp2040:rp2040:rpipicow'
     assert entry['compile'] is True
     assert entry['wifi'] is entry['bluetooth'] is False
-    assert entry['simulation'] == 'unavailable'
+    assert entry['simulation'] == 'browser'
+    assert 'no CYW43' in entry['simulation_scope']

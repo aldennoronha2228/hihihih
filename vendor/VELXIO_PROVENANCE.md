@@ -8,6 +8,6 @@ The `velxio` directory contains upstream source, including its original `LICENSE
 
 Local compatibility patch: `frontend/src/simulation/I2CBusManager.ts` uses an explicit `unknown` intermediate assertion for TypeScript 6 compatibility; runtime behavior is unchanged. `EPaperElement.ts` removes an unused `DEFAULT_PANEL_KIND` import when registering the complete component catalog.
 
-Local reliability patch: `frontend/src/services/ComponentRegistry.ts` clears the shared load promise when an attempt finishes and propagates load failures. Concurrent callers still share one attempt, but a later `load()` can retry failed metadata loading instead of reusing a resolved, empty-registry promise.
+Local reliability patch: `frontend/src/services/ComponentRegistry.ts` clears the shared load promise when an attempt finishes and propagates load failures. Concurrent callers still share one attempt, but a later `load()` or `reload()` can retry failed metadata loading instead of reusing a resolved, empty-registry promise. The module's eager initialization reports its rejection explicitly, avoiding an unhandled promise while retaining caller-visible failures.
 
 Velxio is AGPLv3/commercial dual-licensed. Integrated distribution and network-accessible modified deployments must comply with the applicable license. A proprietary deployment requires appropriate commercial licensing from the upstream author. See `velxio/LICENSE` and `velxio/COMMERCIAL_LICENSE.md`.

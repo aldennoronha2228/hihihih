@@ -17,6 +17,17 @@ def model_options():
     ]
 
 
+def _max_tokens(env_name):
+    message = f'{env_name} must be an integer between 1 and 8192.'
+    try:
+        value = int(os.getenv(env_name, '4096'))
+    except ValueError:
+        raise ValueError(message) from None
+    if not 1 <= value <= 8192:
+        raise ValueError(message)
+    return value
+
+
 def build_model(provider, key, model_name):
     if provider == 'azure':
         return ChatOpenAI(model=model_name, api_key=key,
@@ -29,7 +40,7 @@ def build_model(provider, key, model_name):
     if provider == 'nvidia':
         return ChatOpenAI(model=model_name, api_key=key, base_url=NVIDIA_BASE_URL,
                           temperature=0.5, max_retries=0, timeout=20, streaming=True,
-                          max_tokens=2048,
+                          max_tokens=_max_tokens('NVIDIA_MAX_TOKENS'),
                           stream_usage=False)
     options = {}
     if model_name in ('openai/gpt-oss-120b', 'openai/gpt-oss-20b'):
@@ -37,4 +48,5 @@ def build_model(provider, key, model_name):
     elif model_name.startswith('qwen/'):
         options = {'reasoning_format': 'parsed'}
     return init_chat_model(model_name, model_provider='groq', api_key=key,
-                           temperature=0.5, max_retries=0, timeout=20, max_tokens=1024, **options)
+                           temperature=0.5, max_retries=0, timeout=20,
+                           max_tokens=_max_tokens('GROQ_MAX_TOKENS'), **options)

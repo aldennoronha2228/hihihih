@@ -15,6 +15,7 @@ export function SampleProjects() {
     fetch('/api/hardware/samples').then(async response => {
       if (!response.ok) throw new Error('Starter projects are temporarily unavailable.')
       const result = await response.json()
+      if (!Array.isArray(result.samples)) throw new Error('Starter project catalog returned an invalid response.')
       if (active) setSamples(result.samples)
     }).catch(error => { if (active) setError(error.message) }).finally(() => { if (active) setLoading(false) })
     return () => { active = false }

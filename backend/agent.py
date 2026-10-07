@@ -7,7 +7,7 @@ import json
 import re
 import time
 from contextlib import aclosing
-from typing import Annotated, Any, AsyncIterator, TypedDict
+from typing import Annotated, Any, AsyncIterator, Literal, TypedDict
 from uuid import uuid4
 
 from langchain_core.messages import (
@@ -44,16 +44,28 @@ repeat mutations. No shell execution is available. Give a concise final answer o
 when tools are finished; do not include tool-selection prose in that answer.
 For explicit project build/create/wire/compile requests, DO THE WORK with tools,
 not a tutorial, code block, proposed diagram, or advice-only answer. First ask
-1-5 useful multiple-choice requirements questions using ask_project_questions
+exactly 10 project-specific multiple-choice requirements questions using ask_project_questions
 unless this request includes confirmed requirements. Questions must resolve actual
 uncertainty about requested behavior, components, timing, or runtime, respect the
 existing selected board, and avoid asking things the user already specified.
+Build on any board in the actual catalog, including ESP32 and Raspberry Pi Linux.
+Unavailable simulation is informational, not a reason to refuse circuit/source generation.
+Say simulation is currently unavailable and omit runtime tools for those boards.
+For Raspberry Pi Linux write an appropriate Python application and setup instructions,
+not Arduino C++; do not claim compilation or simulation when unavailable.
 On a board-unselected project, the first question must have id board, with canonical
 catalog board IDs as option IDs and none for an analog circuit without a board.
-Other questions are optional; ask only unresolved decisions, with at most six options.
+Other questions are optional; ask only unresolved decisions, with three concrete options followed by a fourth option with id ai_choose and label Let AI choose.
 Never add or replace a board unless the confirmed board answer authorizes it.
-Once confirmed, read_project, search_components for exact component IDs/pins,
-add the actual parts, use wire_circuit for validated atomic batches of exact
+Once confirmed, use only read_project, search_components, search_example_requirements
+and assess_project_feasibility until the actual plan is approved. Assess the full plan:
+board, behavior, every part's type/quantity/purpose, libraries and requested operations
+using exact executable tool names such as wire_circuit and compile_firmware.
+The server resolves documented limitations automatically; explain them without asking
+for a second confirmation. Incompatible or blocked plans authorize no changes.
+Never invent approval or bypass the server's feasibility checks.
+After approval, add only approved parts and perform only approved operations.
+Use wire_circuit for validated atomic batches of exact
 connections, then validate_circuit and fix proven errors before writing firmware.
 Explain validation warnings and its limited scope; do not claim broad electrical
 certification. Write working firmware, and compile if requested
@@ -88,6 +100,7 @@ class _Option(_Args):
     id: str = Field(min_length=1, max_length=80, pattern=r'^[A-Za-z0-9_-]+$')
     label: str = Field(min_length=1, max_length=120)
     description: str | None = Field(default=None, max_length=300)
+    component_type: str | None = Field(default=None, max_length=128)
 
 
 class _Question(_Args):
@@ -97,8 +110,35 @@ class _Question(_Args):
 
 
 class _Questions(_Args):
-    questions: list[_Question] = Field(min_length=1, max_length=5)
+    questions: list[_Question] = Field(min_length=1, max_length=10)
     summary: str = Field(min_length=1, max_length=1000)
+
+
+class _PlanPart(_Args):
+    type: str = Field(min_length=1, max_length=128)
+    quantity: int = Field(ge=1, le=30)
+    purpose: str = Field(min_length=1, max_length=500)
+
+
+_Operation = Literal[
+    'read_project', 'search_components', 'add_component', 'remove_component',
+    'modify_component', 'connect_wire', 'remove_wire', 'wire_circuit',
+    'validate_circuit', 'generate_firmware', 'read_firmware', 'edit_firmware',
+    'compile_firmware', 'run_simulation', 'stop_simulation',
+    'read_simulation_results', 'read_compiler_errors', 'calculator',
+]
+
+
+class _Plan(_Args):
+    board: str = Field(min_length=1, max_length=128)
+    behavior: str = Field(min_length=1, max_length=4000)
+    parts: list[_PlanPart] = Field(max_length=40)
+    libraries: list[str] = Field(max_length=100)
+    operations: list[_Operation] = Field(min_length=1, max_length=30)
+
+
+class _Assessment(_Args):
+    plan: _Plan
 
 
 class _Waypoint(_Args):
@@ -151,7 +191,8 @@ _TOOL_FIELDS = {
     'calculator': {'expression': (str, Field(min_length=1, max_length=1000))},
 }
 HARDWARE_TOOL_NAMES = tuple(_TOOL_FIELDS)
-TOOL_NAMES = (*HARDWARE_TOOL_NAMES, 'ask_project_questions', 'search_example_requirements')
+TOOL_NAMES = (*HARDWARE_TOOL_NAMES, 'ask_project_questions', 'search_example_requirements', 'get_example_reference', 'assess_project_feasibility')
+_ASSESSMENT_TOOLS = frozenset({'read_project', 'search_components', 'search_example_requirements', 'get_example_reference', 'assess_project_feasibility'})
 _READ_FIRST = frozenset({
     'add_component', 'remove_component', 'modify_component', 'connect_wire',
     'remove_wire', 'wire_circuit', 'generate_firmware', 'edit_firmware', 'compile_firmware',
@@ -159,8 +200,10 @@ _READ_FIRST = frozenset({
 _MUTATIONS = _READ_FIRST - {'compile_firmware'}
 _CONFIRM_FIRST = _READ_FIRST | {'run_simulation'}
 _DESCRIPTIONS = {
+    'assess_project_feasibility': 'Assess the complete intended board, behavior, parts with quantities and purposes, libraries and exact executable tool names before ANY placement or mutation. The server resolves documented limitations automatically; incompatible plans authorize no changes.',
+    'get_example_reference': 'Read an actual Velxio example circuit, exact parts and connections, firmware source, dependencies and canonical adaptations. Use it as a reference, then build through existing project tools; never claim this reference ran here.',
     'search_example_requirements': 'Search analyzed Velxio prototypes for board, component, library, language, wiring and runtime requirements. Results include unsupported capability gaps; never assume an upstream example runs here.',
-    'ask_project_questions': 'Ask 1-5 unresolved multiple-choice requirements questions, board first when unselected; at most six options each. Pause for user selections without mutations.',
+    'ask_project_questions': 'Ask exactly 10 project-specific multiple-choice requirements questions, board first when unselected; three concrete options plus fourth option ai_choose / Let AI choose. Pause for user selections without mutations.',
     'read_project': 'Read the current project, components, wires, firmware, and revision. Required before mutations.',
     'search_components': 'Search the component catalog for exact types and supported pins.',
     'add_component': 'Add a catalog component to the current project.',
@@ -185,11 +228,14 @@ _SCHEMAS = {
     for name, fields in _TOOL_FIELDS.items()
 }
 _SCHEMAS['ask_project_questions'] = _Questions
-_SCHEMAS['search_example_requirements'] = create_model('SearchExampleRequirementsArgs', __base__=_Args, query=(str, Field(min_length=1, max_length=200)), limit=(int, Field(default=5, ge=1, le=8)))
+_SCHEMAS['assess_project_feasibility'] = _Assessment
+_SCHEMAS['search_example_requirements'] = create_model('SearchExampleRequirementsArgs', __base__=_Args, query=(str, Field(min_length=1, max_length=200)), limit=(int, Field(default=3, ge=1, le=8)), board=_optional(str, max_length=128))
+_SCHEMAS['get_example_reference'] = create_model('GetExampleReferenceArgs', __base__=_Args, example_id=(str, Field(min_length=1, max_length=128)))
 
 
 class _State(TypedDict):
     messages: Annotated[list[BaseMessage], add_messages]
+    retry_verification: bool
 
 
 class _LimitReached(Exception):
@@ -197,6 +243,10 @@ class _LimitReached(Exception):
 
 
 class _IncompleteBuild(Exception):
+    pass
+
+
+class _IncompleteResponse(Exception):
     pass
 
 
@@ -247,7 +297,7 @@ def _build_intent(text):
         return False
     if re.search(r'^\s*(?:how (?:do|can|would)|explain|what (?:is|are)|tell me about)\b', text, re.I):
         return False
-    return bool(re.search(r'\b(?:build|create|make|assemble|wire|connect|compile|generate|implement|add|edit|modify|replace|remove|run|start)\b', text, re.I))
+    return bool(re.search(r'\b(?:build|create|make|assemble|wire|connect|compile|generate|implement|add|edit|modify|replace|remove|run|start|blink|sweep)\b', text, re.I))
 
 
 def _bounded(value, default, ceiling):
@@ -281,18 +331,33 @@ def _failed(result) -> bool:
     )
 
 
-def _tool_error(error: Exception) -> str:
+def _tool_error(error: Exception, runtime_token=None) -> str:
+    def redact(value, depth=0):
+        if depth > 6:
+            return '[truncated]'
+        if isinstance(value, dict):
+            return {key: redact(item, depth + 1) for key, item in list(value.items())[:40]
+                    if not re.search(r'token|secret|password|authorization|api[_-]?key|cookie|credential', str(key), re.I)}
+        if isinstance(value, list):
+            return [redact(item, depth + 1) for item in value[:40]]
+        if isinstance(value, str):
+            return (value.replace(runtime_token, '[redacted]') if runtime_token else value)[:4000]
+        return value
+
     if isinstance(error, ValidationError):
-        return 'Invalid tool arguments: ' + '; '.join(
+        detail = 'Invalid tool arguments: ' + '; '.join(
             f'{".".join(map(str, item["loc"]))}: {item["msg"]}'
             for item in error.errors(include_input=False, include_url=False)
         )
-    if isinstance(error, (ValueError, FileNotFoundError)):
-        return str(error)
-    detail = getattr(error, 'detail', None)
-    if isinstance(detail, str):
-        return detail
-    return 'The hardware tool failed. Check project, compiler, and browser availability.'
+    elif isinstance(error, (ValueError, FileNotFoundError)):
+        detail = str(error)
+    else:
+        detail = getattr(error, 'detail', None)
+    if isinstance(detail, (dict, list)):
+        detail = json.dumps(redact(detail), ensure_ascii=False, default=str)
+    if not isinstance(detail, str):
+        detail = 'The hardware tool failed. Check project, compiler, and browser availability.'
+    return (detail.replace(runtime_token, '[redacted]') if runtime_token else detail)[:4000]
 
 
 def _provider_error(error: Exception) -> str:
@@ -359,13 +424,18 @@ def _get_service():
     return service
 
 
+def _get_feasibility():
+    from backend import feasibility
+    return feasibility
+
+
 async def _calculator(expression):
     from backend.hardware import calculator
     return calculator(expression)
 
 
 async def stream_agent(model, history, project_id=None, runtime_token=None, requirements=None,
-                       *, max_tool_calls=None, max_model_calls=None, timeout_seconds=None) -> AsyncIterator[dict]:
+                       *, approval=None, max_tool_calls=None, max_model_calls=None, timeout_seconds=None) -> AsyncIterator[dict]:
     """Yield text, actual tool activity, and one terminal metadata event.
 
     History accepts LangChain messages or role/content objects. Close the generator
@@ -378,13 +448,22 @@ async def stream_agent(model, history, project_id=None, runtime_token=None, requ
     project_read = False
     project_revision = None
     selected_board = None
-    pending_board = None
+    assessment = None
+    approval_id = None
+    approved_plan = None
+    compile_attempts = 0
+    current_compile = None
+    readback_revision = None
+    validation_revision = None
+    verification_corrections = 0
+    repeated_failures: dict[str, int] = {}
     board_unselected = False
     confirmed = False
     needs_questions = False
     paused = False
     build_requested = False
     compile_requested = False
+    emergency_stop = False
     successful_tools: dict[str, int] = {}
     attempted_tools: dict[str, int] = {}
     failed_tools: dict[str, int] = {}
@@ -399,6 +478,8 @@ async def stream_agent(model, history, project_id=None, runtime_token=None, requ
 
     async def execute(name, args):
         nonlocal project_read, project_revision, paused, selected_board, board_unselected
+        nonlocal assessment, approval_id, approved_plan, compile_attempts, current_compile, compile_requested
+        nonlocal readback_revision, validation_revision
         if name == 'ask_project_questions':
             if len({question['id'] for question in args['questions']}) != len(args['questions']):
                 raise ValueError('Question IDs must be unique.')
@@ -414,20 +495,37 @@ async def stream_agent(model, history, project_id=None, runtime_token=None, requ
             if project_id and board_unselected:
                 board_questions = [question for question in questions if question['id'] == 'board']
                 board_question = board_questions[0] if board_questions else _board_question(user_text)
-                if any(option['id'] not in _board_catalog() and option['id'] != 'none'
+                if any(option['id'] not in _board_catalog() and option['id'] not in ('none', 'ai_choose')
                        for option in board_question['options']):
                     raise ValueError('Board option IDs must be canonical catalog board keys or none.')
-                questions = [board_question, *[question for question in questions if question['id'] != 'board'][:4]]
+                questions = [board_question, *[question for question in questions if question['id'] != 'board'][:9]]
             elif project_id:
                 questions = [question for question in questions if question['id'] != 'board']
                 if not questions:
                     raise ValueError('The project already has a board. Ask only unresolved non-board requirements.')
+            if project_id and hasattr(_get_service(), 'catalog'):
+                from backend.hardware import BOARD_CONFIG, BOARD_ALIASES
+                catalog = _get_service().catalog.components
+                for question in questions:
+                    compatible = []
+                    for option in question['options']:
+                        kind = option.get('component_type')
+                        if not kind and option['id'] in catalog:
+                            kind = option['id']
+                        if kind:
+                            kind = BOARD_ALIASES.get(kind.removeprefix('wokwi-'), kind.removeprefix('wokwi-'))
+                            component = catalog.get(kind)
+                            if not component or (kind not in BOARD_CONFIG and not component.get('pins')):
+                                continue
+                        compatible.append(option)
+                    if not any(option['id'] == 'ai_choose' for option in compatible):
+                        compatible.append({'id':'ai_choose','label':'Let AI choose','description':'Choose a compatible available device.'})
+                    if len(compatible) < 2:
+                        raise ValueError('This device question has no compatible alternatives. Read the supported catalog and ask again.')
+                    question['options'] = compatible
             paused = True
             return {**args, 'questions': questions}
-        if name == 'search_example_requirements':
-            from backend.example_requirements import search_example_requirements
-            return search_example_requirements(args['query'], args.get('limit', 5))
-        if needs_questions:
+        if needs_questions and name != 'stop_simulation':
             raise ValueError('Call ask_project_questions first and wait for user-confirmed requirements. No hardware operation is allowed in this clarification turn.')
         if name != 'calculator' and not project_id:
             raise ValueError('Select or create a current hardware project before using this tool.')
@@ -435,24 +533,94 @@ async def stream_agent(model, history, project_id=None, runtime_token=None, requ
             raise ValueError('Call read_project successfully before mutating or compiling the current project.')
         if name in _CONFIRM_FIRST and not confirmed:
             raise ValueError('User-confirmed requirements are required before project mutations, compilation, or simulation start. Call ask_project_questions and wait for answers.')
+        if confirmed and project_id and not approval_id and name not in _ASSESSMENT_TOOLS and name != 'stop_simulation':
+            raise ValueError('Assess the complete project plan and obtain approval before any placement, mutation, compilation, or runtime operation.')
+        if name == 'search_example_requirements':
+            from backend.example_requirements import search_example_requirements
+            return search_example_requirements(args['query'], args.get('limit', 3), board=args.get('board'))
+        if name == 'get_example_reference':
+            from backend.example_requirements import get_example_reference
+            return get_example_reference(args['example_id'], _get_service().catalog)
+        if name == 'assess_project_feasibility':
+            if not confirmed or not project_read:
+                raise ValueError('Confirm requirements and read_project before assessing the plan.')
+            plan = args['plan']
+            board_answer = requirements.get('board', selected_board)
+            if board_answer != 'ai_choose' and plan['board'] != board_answer and not (plan['board'] == 'none' and board_answer in (None, 'none', 'unselected')):
+                raise ValueError('The assessed board must match the confirmed board selection.')
+            assessment = _public(_get_feasibility().assess(_get_service(), project_id, {**plan, 'requirements_text': user_text + '\n' + json.dumps(requirements)}))
+            if assessment.get('status') == 'awaiting_approval':
+                assessment = _public(_get_feasibility().authorize(_get_service(), project_id, {'assessment_id': assessment['id'], 'choice': 'hardware_only'}))
+            if assessment.get('status') == 'approved':
+                approval_id = assessment['id']
+                approved_plan = assessment['plan']
+                compile_requested = 'compile_firmware' in approved_plan['operations']
+                _get_feasibility().validate_approval(_get_service(), project_id, approval_id)
+            else:
+                approval_id = None
+                approved_plan = None
+                raise ValueError('The proposed design contains incompatible devices. Select only the compatible choices from the setup answers; no changes were authorized. Details: ' + json.dumps(assessment.get('issues', [])))
+            return assessment
+        if name in _CONFIRM_FIRST:
+            if not approval_id:
+                raise ValueError('Complete the feasibility review before changing the project.')
+            _get_feasibility().check_operation(_get_service(), project_id, approval_id, name, args)
+            if name not in approved_plan['operations']:
+                raise ValueError('This operation is outside the reviewed plan. Reassess before proceeding.')
+        if approval_id and name in ('add_component', 'compile_firmware', 'run_simulation', 'validate_circuit'):
+            from backend.hardware import BOARD_ALIASES
+            def canonical(kind):
+                kind = kind.removeprefix('wokwi-')
+                return BOARD_ALIASES.get(kind, kind)
+            allowed = {canonical(part['type']) for part in approved_plan['parts']} | {approved_plan['board']}
+            actual = _get_service().get_project(project_id)
+            counts: dict[str, int] = {}
+            for component in actual.get('components', []):
+                kind = canonical(component.get('type', ''))
+                counts[kind] = counts.get(kind, 0) + 1
+            if name == 'add_component' and canonical(args['type']) not in allowed:
+                raise ValueError('This component is outside the reviewed plan. Reassess before placement.')
+            if name != 'add_component' and any(kind not in allowed for kind in counts):
+                raise ValueError('The actual project contains parts outside the reviewed plan. Assess the actual project before compiling, running, or final validation.')
+            if name == 'add_component':
+                kind = canonical(args['type'])
+                maximum = sum(part['quantity'] for part in approved_plan['parts'] if canonical(part['type']) == kind)
+                if kind == approved_plan['board']:
+                    maximum = max(1, maximum)
+                if counts.get(kind, 0) >= maximum:
+                    raise ValueError('This placement exceeds the reviewed part quantity. Reassess before adding more parts.')
+        if name in ('compile_firmware', 'run_simulation'):
+            checked = await _get_service().command(project_id, 'validate_circuit', {}, runtime_token=runtime_token)
+            if checked.get('errors'):
+                raise ValueError('Circuit validation found a proven connection error. Fix it before compilation or simulation: ' + json.dumps(checked['errors']))
+        if compile_attempts >= 3 and (name == 'compile_firmware'
+                or name in ('generate_firmware', 'edit_firmware') and not current_compile):
+            raise _LimitReached('Compilation correction limit reached (at most two corrections).')
         if name == 'add_component':
             from backend.hardware import BOARD_ALIASES
             component_type = args.get('type', '').removeprefix('wokwi-')
             board_key = BOARD_ALIASES.get(component_type, component_type)
-            if board_key in _board_catalog() and (not confirmed or requirements.get('board') != board_key):
+            board_answer = requirements.get('board', selected_board) if confirmed else None
+            authorized_board = approved_plan['board'] if board_answer == 'ai_choose' and approved_plan else board_answer
+            if board_key in _board_catalog() and (not confirmed or authorized_board != board_key):
                 raise ValueError('Adding or replacing a board requires its canonical key in the confirmed board answer.')
         if name in _READ_FIRST and project_revision is not None:
             args = {**args, 'expected_revision': args.get('expected_revision', project_revision)}
         attempted_tools[name] = attempted_tools.get(name, 0) + 1
+        previous_revision = project_revision
+        if name == 'compile_firmware':
+            compile_attempts += 1
+            current_compile = None
         if name == 'calculator' and not project_id:
             result = await _calculator(args['expression'])
         else:
             result = await _get_service().command(project_id, name, args, runtime_token=runtime_token)
         result = _public(result)
         if name == 'wire_circuit' and isinstance(result, dict) and 'project' in result:
+            project_revision = result['project']['revision']
             result = {**result, 'project': {key: value for key, value in result['project'].items() if key in ('id', 'revision', 'board', 'components', 'wires')}}
         if name == 'search_components' and isinstance(result, dict):
-            result = {'components': [{key: value for key, value in item.items() if key in ('id', 'name', 'category', 'pins', 'defaultValues', 'connectable', 'supported_board')} for item in result.get('components', [])[:8]]}
+            result = {'components': [{key: value for key, value in item.items() if key in ('id', 'name', 'category', 'pins', 'defaultValues', 'properties', 'connectable', 'supported_board')} for item in result.get('components', [])[:8]]}
         if name in _MUTATIONS and isinstance(result, dict) and 'revision' in result:
             result = {key: value for key, value in result.items() if key in ('id', 'revision', 'board', 'components', 'wires')}
         if name == 'read_project' and isinstance(result, dict):
@@ -470,6 +638,18 @@ async def stream_agent(model, history, project_id=None, runtime_token=None, requ
                 board_unselected = False
             if isinstance(result, dict) and isinstance(result.get('revision'), int) and (name == 'read_project' or name in _MUTATIONS):
                 project_revision = result['revision']
+            if name in _MUTATIONS:
+                _get_feasibility().advance(_get_service(), project_id, approval_id, previous_revision, project_revision)
+                readback_revision = None
+                validation_revision = None
+                current_compile = None
+            elif name == 'read_project':
+                readback_revision = project_revision
+            elif name == 'validate_circuit':
+                if result.get('valid') is True and not result.get('errors') and result.get('revision') == project_revision:
+                    validation_revision = project_revision
+            elif name == 'compile_firmware':
+                current_compile = result
             successful_tools[name] = successful_tools.get(name, 0) + 1
             change_key = {'add_component': 'componentsAdded', 'remove_component': 'componentsRemoved',
                           'modify_component': 'componentsModified', 'connect_wire': 'wiresAdded',
@@ -489,29 +669,53 @@ async def stream_agent(model, history, project_id=None, runtime_token=None, requ
 
     tools = [scoped_tool(name) for name in TOOL_NAMES]
 
+    def compiled_current_revision():
+        return bool(
+            current_compile and not _failed(current_compile) and current_compile.get('artifact')
+            and current_compile.get('project_revision') == project_revision
+            and current_compile.get('source_revision') == _get_service().get_project(project_id).get('firmware', {}).get('revision')
+        )
+
     async def model_node(state):
-        nonlocal model_calls, usage, actual_model
+        nonlocal model_calls, usage, actual_model, tool_calls, verification_corrections
         if model_calls >= model_limit:
             raise _LimitReached('Maximum model calls reached.')
         model_calls += 1
         writer = get_stream_writer()
-        require_tools = needs_questions or (build_requested and not any(successful_tools.get(name) for name in _MUTATIONS))
-        bound_model = model.bind_tools(
-            [tool for tool in tools if tool.name == 'ask_project_questions'] if needs_questions else tools,
-            tool_choice='required' if require_tools else 'auto',
-        )
+        require_tools = needs_questions or (build_requested and not (
+            any(successful_tools.get(name) for name in _MUTATIONS) or compiled_current_revision()
+        ))
+        available = tools
+        if emergency_stop:
+            available = [tool for tool in tools if tool.name == 'stop_simulation']
+            require_tools = not successful_tools.get('stop_simulation') and not failed_tools.get('stop_simulation')
+        elif needs_questions:
+            available = [tool for tool in tools if tool.name == 'ask_project_questions']
+        elif confirmed and project_id and not approval_id:
+            available = [tool for tool in tools if tool.name in _ASSESSMENT_TOOLS]
+            require_tools = True
+        if approved_plan and approval_id and not emergency_stop:
+            excluded = {'assess_project_feasibility', 'ask_project_questions'}
+            from backend.hardware import BOARD_CONFIG
+            board_capability = BOARD_CONFIG.get(approved_plan['board'], {})
+            if board_capability.get('simulation') == 'unavailable': excluded.update({'run_simulation','stop_simulation','read_simulation_results'})
+            if board_capability.get('compile') is False: excluded.update({'compile_firmware','read_compiler_errors'})
+            available = [tool for tool in available if tool.name not in excluded]
+        bound_model = model.bind_tools(available, tool_choice='required' if require_tools else 'auto')
         if needs_questions or build_requested:
             phase = 'Preparing board and circuit questions' if needs_questions else (
                 'Planning the next project operation' if require_tools else 'Reviewing tool results and remaining build work')
             writer({'type': 'text', 'channel': 'narration', 'text': phase + '.\n'})
-        for attempt in range(1):
+        for attempt in range(2):
             aggregate = None
             answer_parts = []
             try:
                 async with aclosing(bound_model.astream(state['messages'])) as chunks:
                     async for chunk in chunks:
+                        if isinstance(chunk, AIMessage) and not isinstance(chunk, AIMessageChunk):
+                            chunk = AIMessageChunk(**chunk.model_dump(exclude={'type'}))
                         if not isinstance(chunk, AIMessageChunk):
-                            raise TypeError('The model must stream AIMessageChunk messages.')
+                            raise TypeError('The model must stream AIMessage or AIMessageChunk messages.')
                         aggregate = chunk if aggregate is None else aggregate + chunk
                         reasoning = chunk.additional_kwargs.get('reasoning_content')
                         if isinstance(reasoning, str) and reasoning:
@@ -523,13 +727,27 @@ async def stream_agent(model, history, project_id=None, runtime_token=None, requ
                                 writer({'type': 'text', 'channel': 'narration', 'text': text})
                         actual_model = chunk.response_metadata.get('model_name') or actual_model
                 break
-            except Exception:
+            except Exception as error:
+                status_code = getattr(error, 'status_code', None)
+                response = getattr(error, 'response', None)
+                if status_code == 429 and aggregate is None and attempt == 0:
+                    retry = getattr(response, 'headers', {}).get('retry-after') if response is not None else None
+                    detail = str(getattr(error, 'body', ''))
+                    match = re.search(r'(?:try again|retry) in ([\d.]+)s', detail, re.I)
+                    try: delay = float(retry) if retry else float(match.group(1)) if match else 0.0
+                    except ValueError: delay = 10.0
+                    if 0 < delay <= 30:
+                        writer({'type':'text','channel':'narration','text':f'Provider is rate-limited; retrying this model request once after {int(delay + 1)} seconds. No tool changes are replayed.\n'})
+                        await asyncio.sleep(delay + 1)
+                        continue
                 raise
         if aggregate is None:
             raise ValueError('The model returned no response.')
         if aggregate.usage_metadata:
             latest = aggregate.usage_metadata
             usage = {key: (usage or {}).get(key, 0) + latest.get(key, 0) for key in ('input_tokens', 'output_tokens', 'total_tokens')}
+        if aggregate.response_metadata.get('finish_reason') == 'length':
+            raise _IncompleteResponse('The model response reached its output-token limit. No truncated tool calls were executed; retry with a larger output-token limit.')
         message = message_chunk_to_message(aggregate)
         message.additional_kwargs.pop('reasoning_content', None)
         if not message.tool_calls and not message.invalid_tool_calls:
@@ -539,17 +757,38 @@ async def stream_agent(model, history, project_id=None, runtime_token=None, requ
                 if attempted_tools and failed_tools:
                     raise _IncompleteBuild('The requested build is blocked by tool errors. No requested project change succeeded; review the tool errors and correct the project or requirements.')
                 raise _IncompleteBuild('The agent returned advice without executing the requested build. No changes were made. Retry with confirmed requirements and an explicit build instruction.')
-            if compile_requested and not attempted_tools.get('compile_firmware'):
-                raise _IncompleteBuild('The requested compilation was not executed. Review the project changes and request compilation again.')
+            if project_id and approval_id and (build_requested or any(successful_tools.get(name) for name in _CONFIRM_FIRST)):
+                _get_feasibility().validate_approval(_get_service(), project_id, approval_id)
+                for check in ('read_project', 'validate_circuit'):
+                    if (check == 'read_project' and readback_revision == project_revision
+                            or check == 'validate_circuit' and validation_revision == project_revision):
+                        continue
+                    if tool_calls >= tool_limit:
+                        raise _LimitReached('Maximum tool calls reached.')
+                    tool_calls += 1
+                    step_id = f'tool_{uuid4().hex}'
+                    active[step_id] = check
+                    writer({'type': 'step_start', 'id': step_id, 'label': check.replace('_', ' ').capitalize(), 'command': check + '({})'})
+                    checked = await execute(check, {})
+                    invalid = _failed(checked) or (check == 'validate_circuit' and (checked.get('valid') is not True or checked.get('errors')))
+                    writer({'type': 'step_end', 'id': step_id, 'status': 'error' if invalid else 'success', 'output': json.dumps(checked, ensure_ascii=False)})
+                    active.pop(step_id, None)
+                    if invalid:
+                        if verification_corrections < 2:
+                            verification_corrections += 1
+                            return {'messages': [message, SystemMessage(content='Final verification failed: ' + json.dumps(checked) + '. Correct only within the approved plan, then reread and validate. Do not claim success yet.')], 'retry_verification': True}
+                        raise _IncompleteBuild('Final project readback or circuit validation failed after two correction attempts. The build is not verified; review the reported errors.')
+            if compile_requested and not compiled_current_revision():
+                raise _IncompleteBuild('The requested compilation has no successful artifact for the current project. Review diagnostics and compile the current revision.')
             if not any(answer_parts):
                 raise ValueError('The model returned no answer text.')
             # Buffer until the complete turn proves that no tool calls follow.
             for part in answer_parts:
                 writer({'type': 'text', 'channel': 'answer', 'text': part})
-        return {'messages': [message]}
+        return {'messages': [message], 'retry_verification': False}
 
     async def tool_node(state):
-        nonlocal tool_calls, pending_board
+        nonlocal tool_calls
         writer = get_stream_writer()
         message = state['messages'][-1]
         results = []
@@ -575,7 +814,7 @@ async def stream_agent(model, history, project_id=None, runtime_token=None, requ
                     raise ValueError('Unknown tool. Use one of the bound hardware tools.')
                 if not isinstance(args, dict):
                     raise ValueError('Invalid tool arguments: expected a JSON object.')
-                validated = _SCHEMAS[name].model_validate(args).model_dump(exclude_none=True)
+                validated = _SCHEMAS[name].model_validate(args).model_dump(exclude_none=True, by_alias=True)
                 if name == 'edit_firmware' and not (
                     ('source' in validated and 'old' not in validated and 'new' not in validated)
                     or ('source' not in validated and 'old' in validated and 'new' in validated)
@@ -584,12 +823,10 @@ async def stream_agent(model, history, project_id=None, runtime_token=None, requ
                 result = await execute(name, validated)
                 output = json.dumps(result, ensure_ascii=False, allow_nan=False)
                 failed = _failed(result)
-            except asyncio.CancelledError:
+            except (asyncio.CancelledError, _LimitReached):
                 raise
             except Exception as error:
-                detail = _tool_error(error)
-                if runtime_token:
-                    detail = detail.replace(runtime_token, '[redacted]')
+                detail = _tool_error(error, runtime_token)
                 result = {'status': 'error', 'error': detail}
                 output = json.dumps(result, ensure_ascii=False)
                 failed = True
@@ -599,52 +836,21 @@ async def stream_agent(model, history, project_id=None, runtime_token=None, requ
             active.pop(step_id, None)
             if name == 'ask_project_questions' and not failed:
                 writer({'type': 'questions', **result})
+            if name == 'assess_project_feasibility' and not failed:
+                writer({'type': 'feasibility', **result})
             results.append(ToolMessage(content=output, tool_call_id=call_id, name=name, status='error' if failed else 'success'))
-            if name == 'read_project' and not failed and pending_board:
-                board_key = pending_board
-                pending_board = None
-                if board_unselected:
-                    if tool_calls >= tool_limit:
-                        raise _LimitReached('Maximum tool calls reached.')
-                    tool_calls += 1
-                    board_call_id = f'call_{uuid4().hex}'
-                    board_args = {'type': board_key, 'expected_revision': project_revision}
-                    board_step_id = f'tool_{uuid4().hex}'
-                    active[board_step_id] = 'add_component'
-                    writer({'type': 'step_start', 'id': board_step_id, 'label': 'Add component',
-                            'command': 'add_component(' + json.dumps(board_args) + ')'})
-                    try:
-                        board_result = await execute('add_component', board_args)
-                        board_failed = _failed(board_result)
-                    except asyncio.CancelledError:
-                        raise
-                    except Exception as error:
-                        detail = _tool_error(error)
-                        if runtime_token:
-                            detail = detail.replace(runtime_token, '[redacted]')
-                        board_result = {'status': 'error', 'error': detail}
-                        board_failed = True
-                    board_output = json.dumps(board_result, ensure_ascii=False, allow_nan=False)
-                    if board_failed:
-                        failed_tools['add_component'] = failed_tools.get('add_component', 0) + 1
-                    writer({'type': 'step_end', 'id': board_step_id,
-                            'status': 'error' if board_failed else 'success', 'output': board_output})
-                    active.pop(board_step_id, None)
-                    results.append(AIMessage(content='', tool_calls=[{
-                        'name': 'add_component', 'args': board_args, 'id': board_call_id, 'type': 'tool_call',
-                    }]))
-                    results.append(ToolMessage(content=board_output, tool_call_id=board_call_id,
-                                               name='add_component', status='error' if board_failed else 'success'))
-                    for remaining in calls[index + 1:]:
-                        remaining_id = remaining.get('id') or f'call_{uuid4().hex}'
-                        results.insert(-2, ToolMessage(
-                            content=json.dumps({'status': 'error', 'error': 'Replan this call after confirmed board placement and its new revision.'}),
-                            tool_call_id=remaining_id, name=remaining.get('name') or 'unknown_tool', status='error',
-                        ))
-                    break
+            failure_key = name + ':' + json.dumps(args, sort_keys=True, ensure_ascii=False)
+            if failed:
+                repeated_failures[failure_key] = repeated_failures.get(failure_key, 0) + 1
+                if repeated_failures[failure_key] >= 3:
+                    raise _LimitReached('Three identical failed tool calls reached. Correct the plan or arguments instead of retrying.')
+            else:
+                repeated_failures.pop(failure_key, None)
         return {'messages': results}
 
     def route(state):
+        if state.get('retry_verification'):
+            return 'model'
         message = state['messages'][-1]
         return 'tools' if message.tool_calls or message.invalid_tool_calls else END
 
@@ -659,18 +865,56 @@ async def stream_agent(model, history, project_id=None, runtime_token=None, requ
             requirements = json.loads(payload)
         if requirements is not None:
             requirements = _requirements(requirements)
-            if 'board' in requirements and requirements['board'] != 'none' and requirements['board'] not in _board_catalog():
+            if 'board' in requirements and requirements['board'] not in ('none', 'ai_choose') and requirements['board'] not in _board_catalog():
                 raise _InvalidRequirements('The board answer must be a canonical catalog board key or none. No changes were made.')
             confirmed = True
-            if project_id and requirements.get('board') not in (None, 'none'):
-                pending_board = requirements['board']
-        build_requested = bool(project_id and _build_intent(user_text))
-        compile_requested = bool(build_requested and re.search(r'\bcompile\b', user_text, re.I))
+        if approval is not None:
+            if not project_id or not confirmed or not isinstance(approval, dict):
+                raise _InvalidRequirements('Approval requires a current project and confirmed requirements.')
+            assessment_id = approval.get('assessment_id', approval.get('id'))
+            if not isinstance(assessment_id, str) or not assessment_id or not isinstance(approval.get('choice'), str):
+                raise _InvalidRequirements('Approval requires an assessment ID and choice.')
+            try:
+                assessment = _public(_get_feasibility().authorize(_get_service(), project_id, {'assessment_id': assessment_id, 'choice': approval['choice']}))
+                if assessment.get('status') == 'approved':
+                    approval_id = assessment['id']
+                    assessment = _public(_get_feasibility().validate_approval(_get_service(), project_id, approval_id))
+                    approved_plan = assessment['plan']
+                elif assessment.get('status') == 'revise':
+                    confirmed = False
+                    requirements = None
+                    paused = False
+                else:
+                    paused = True
+            except Exception as error:
+                raise _InvalidRequirements(_tool_error(error, runtime_token)) from error
+            yield {'type': 'feasibility', **assessment}
+        revising = bool(assessment and assessment.get('status') == 'revise')
+        emergency_stop = bool(project_id and re.fullmatch(
+            r'\s*(?:(?:please|emergency)\s+)?(?:stop|halt)\s+(?:the\s+)?(?:simulation|simulator)(?:\s+(?:now|please))?[.!]?\s*', user_text, re.I
+        ))
+        build_requested = bool(project_id and not emergency_stop and (_build_intent(user_text) or approval_id or revising))
+        compile_requested = bool(build_requested and ('compile_firmware' in approved_plan['operations'] if approved_plan else re.search(r'\bcompile\b', user_text, re.I)))
         needs_questions = build_requested and not confirmed
         tool_limit = _bounded(max_tool_calls, MAX_TOOL_CALLS, 100)
         model_limit = _bounded(max_model_calls, MAX_MODEL_CALLS, 80)
         deadline = _bounded(timeout_seconds, MAX_SECONDS, 300)
         messages = _history(history)
+        if emergency_stop:
+            messages.append(SystemMessage(content='Stop the current simulation with stop_simulation now. This safety stop needs no requirements questions or feasibility review. Report only the actual browser acknowledgement or blocking error.'))
+        if revising:
+            messages.append(SystemMessage(content='The user chose Change the design. Ask new project-specific MCQs to resolve these actual limitations: ' + json.dumps(assessment.get('issues', [])) + '. Preserve the original goal from conversation history and the selected board. Offer supported alternatives or Let AI choose. Do not repeat the same feasibility review, place parts, or write firmware before revised answers.'))
+        if build_requested and confirmed and hasattr(_get_service(), 'catalog'):
+            from backend.example_requirements import search_example_requirements, get_example_reference
+            reference_query = next((message.content for message in history if isinstance(message, HumanMessage) and _build_intent(message.content) and not message.content.startswith('Project requirements confirmed:')), user_text)[:200]
+            matches = search_example_requirements(reference_query, 2, board=selected_board if selected_board not in (None,'unselected','none') else None)
+            if matches['examples']:
+                reference = get_example_reference(matches['examples'][0]['id'], _get_service().catalog)
+                messages.append(SystemMessage(content='Actual Velxio starting reference (not evidence of current compilation or simulation): ' + json.dumps(reference, ensure_ascii=False) + '\nAdapt its verified pin mappings, current-limiting resistors, power/ground, and actual firmware to the user answers. Use the existing project tools to create parts/wires/source. Do not copy unsupported peripherals or blindly replace the requested board. Read another reference with get_example_reference when needed.'))
+        if needs_questions and hasattr(_get_service(), 'catalog'):
+            from backend.hardware import BOARD_CONFIG
+            supported = [{'id': kind, 'name': item.get('name', kind), 'simulation': BOARD_CONFIG.get(kind, {}).get('simulation')} for kind, item in _get_service().catalog.components.items() if kind in BOARD_CONFIG or item.get('pins')]
+            messages.append(SystemMessage(content='Device choices must come from this actual compatible catalog: ' + json.dumps(supported) + '. For every device option include component_type with the exact catalog ID. Do not offer a display/sensor with missing pins. Simulation-unavailable boards may still be built. If requested hardware is absent, clarify a supported alternative here, not in another confirmation later.'))
         if needs_questions:
             project = _get_service().get_project(project_id)
             selected_board = project.get('board')
@@ -682,10 +926,15 @@ async def stream_agent(model, history, project_id=None, runtime_token=None, requ
             ) if board_unselected else 'The project already uses board ' + str(selected_board) + '. Omit the board question.'))
         if confirmed:
             messages.append(SystemMessage(content='The user confirmed these project requirements: ' + json.dumps(requirements, ensure_ascii=False)
-                                          + '\nExecute the latest requested project operation with tools. Do not ask requirements questions again.'))
-        elif needs_questions:
+                                          + '\nAn ai_choose answer delegates that decision to you: choose a supported option, explain it, and include it in the assessed plan. Do not repeat that question. Execute the latest requested project operation with tools. Do not ask requirements questions again.'))
+        if approved_plan:
+            messages.append(SystemMessage(content='Server-authorized feasibility plan: ' + json.dumps(approved_plan, ensure_ascii=False)
+                                          + '\nExecute only these parts and operations. Read the current revision first; report limitations honestly.'))
+        elif confirmed and project_id and not emergency_stop:
+            messages.append(SystemMessage(content='Feasibility approval is required. Read the current project and assess the complete actual intended plan before any placement, firmware change, compilation or runtime tool.'))
+        if needs_questions:
             messages.append(SystemMessage(content='This is an initial project build request without confirmed requirements. '
-                                          'Call ask_project_questions with 1-5 useful MCQs now; non-board questions are optional. No hardware changes may run.'))
+                                          'Call ask_project_questions with exactly 10 useful MCQs now; non-board questions are optional. No hardware changes may run.'))
         # Disable provider transport retries without mutating a shared parent model.
         if hasattr(model, 'max_retries') and hasattr(model, 'model_copy'):
             updates = {'max_retries': 0}
@@ -699,15 +948,16 @@ async def stream_agent(model, history, project_id=None, runtime_token=None, requ
         graph.add_node('model', model_node)
         graph.add_node('tools', tool_node)
         graph.add_edge(START, 'model')
-        graph.add_conditional_edges('model', route, {'tools': 'tools', END: END})
+        graph.add_conditional_edges('model', route, {'tools': 'tools', 'model': 'model', END: END})
         graph.add_conditional_edges('tools', lambda state: END if paused else 'model', {'model': 'model', END: END})
         compiled = graph.compile()
-        async with asyncio.timeout(deadline):
-            async with aclosing(compiled.astream(
-                {'messages': messages}, config={'recursion_limit': RECURSION_LIMIT}, stream_mode='custom',
-            )) as events:
-                async for item in events:
-                    yield item
+        if not paused:
+            async with asyncio.timeout(deadline):
+                async with aclosing(compiled.astream(
+                    {'messages': messages}, config={'recursion_limit': RECURSION_LIMIT}, stream_mode='custom',
+                )) as events:
+                    async for item in events:
+                        yield item
     except asyncio.CancelledError:
         raise
     except (_LimitReached, TimeoutError, GraphRecursionError) as error:
@@ -724,6 +974,10 @@ async def stream_agent(model, history, project_id=None, runtime_token=None, requ
         status = 'error'
         reason = 'invalid_requirements'
         yield {'type': 'text', 'channel': 'narration', 'text': str(error)}
+    except _IncompleteResponse as error:
+        status = 'error'
+        reason = 'response_truncated'
+        yield {'type': 'text', 'channel': 'narration', 'text': str(error)}
     except _IncompleteBuild as error:
         status = 'error'
         reason = 'build_not_executed'
@@ -736,8 +990,16 @@ async def stream_agent(model, history, project_id=None, runtime_token=None, requ
             yield {'type': 'step_end', 'id': step_id, 'status': 'error', 'output': detail}
         yield {'type': 'text', 'channel': 'narration', 'text': detail}
     if paused and status == 'success':
-        status = 'awaiting_answers'
-        reason = 'requirements_required'
+        if needs_questions:
+            status = 'awaiting_answers'
+            reason = 'requirements_required'
+        elif assessment:
+            decision = assessment.get('status')
+            status = 'cancelled' if decision == 'cancel' else 'awaiting_revision' if decision == 'revise' else 'awaiting_approval'
+            reason = 'feasibility_' + str(decision)
+        else:
+            status = 'awaiting_answers'
+            reason = 'requirements_required'
     yield {'type': 'done', 'status': status, 'reason': reason, 'changes': changes, 'successfulTools': successful_tools, 'model': actual_model,
            'elapsedMs': round((time.perf_counter() - started) * 1000), 'usage': usage,
            'modelCalls': model_calls, 'toolCalls': tool_calls}

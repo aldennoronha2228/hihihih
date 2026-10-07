@@ -4,12 +4,18 @@ import { ArrowDown, Check, Copy, Menu, MessageSquare, Pencil, Plus, RotateCcw, T
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { GradientOrb } from './ui/gradient-orb'
-import { ProjectQuestionForm } from './ui/project-questions'
+import { FeasibilityCard } from './ui/feasibility-card'
+import type { FeasibilityReport } from './ui/feasibility-card'
+import { ProjectSetupCard } from './ui/project-setup-card'
+import { AgentGears } from './ui/agent-gears'
+import type { ProjectQuestions } from './ui/project-questions'
 import { ChatComposer } from './ui/chat-composer'
 import { AgentActivityFeed, appendActivity } from './ui/agent-activity-feed'
 import type { ActivityEvent } from './ui/agent-activity-feed'
 import { readChats, storageKey, streamReply } from '@/lib/chat'
 import type { Conversation, Message } from '@/lib/chat'
+import { useTypedMessage } from '@/lib/use-typed-message'
+import { projectTitle } from '@/lib/project-title'
 import { defaultModels, readModelSelection } from '@/lib/model-selection'
 import type { ModelOption, ModelProvider } from '@/lib/model-selection'
 
@@ -39,6 +45,7 @@ export function ChatApp({ projectId, runtimeToken, embedded = false, initialProm
   const [rename, setRename] = useState<{ id: string; value: string } | null>(null)
   const [deleting, setDeleting] = useState<string | null>(null)
   const [atBottom, setAtBottom] = useState(true)
+  const [setup, setSetup] = useState<{ chatId: string; data: ProjectQuestions } | null>(null)
   const controller = useRef<AbortController | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
@@ -75,8 +82,9 @@ export function ChatApp({ projectId, runtimeToken, embedded = false, initialProm
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight
   }, [location.pathname, embedded])
   useEffect(() => {
-    if (atBottom && scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight
-  }, [active?.messages, atBottom])
+    const node = scrollRef.current
+    if (node && node.scrollHeight - node.scrollTop - node.clientHeight >= 80) setAtBottom(false)
+  }, [active?.messages])
 
   const updateMessage = (chatId: string, messageId: string, update: (message: Message) => Message) => {
     setChats(previous => previous.map(chat => chat.id === chatId ? {
@@ -84,7 +92,7 @@ export function ChatApp({ projectId, runtimeToken, embedded = false, initialProm
     } : chat))
   }
 
-  const generate = async (chat: Conversation, context: Message[], answers = chat.projectId === projectId ? chat.requirements : undefined) => {
+  const generate = async (chat: Conversation, context: Message[], answers = chat.projectId === projectId ? chat.requirements : undefined, approval?: { assessment_id: string; choice: string }) => {
     if (controller.current) return
     const abort = new AbortController()
     controller.current = abort
@@ -110,8 +118,13 @@ export function ChatApp({ projectId, runtimeToken, embedded = false, initialProm
         } else if (event.type === 'delta' && 'text' in event && typeof event.text === 'string') {
           updateMessage(chat.id, reply.id, message => ({ ...message, content: message.content + event.text }))
 
+        } else if (event.type === 'feasibility' && event.id && event.issues && event.choices) {
+          const report = event as unknown as FeasibilityReport
+          setChats(previous => previous.map(item => item.id === chat.id ? { ...item, messages: item.messages.map(message => message.id === reply.id ? { ...message, feasibility: report, feasibilityChoice: report.status === 'approved' ? undefined : item.messages.find(old => old.feasibility?.id === report.id)?.feasibilityChoice } : message.feasibility?.id === report.id ? { ...message, feasibility: undefined } : message) } : item))
         } else if (event.type === 'questions' && event.questions) {
-          updateMessage(chat.id, reply.id, message => ({ ...message, questions: { summary: event.summary || '', questions: event.questions! } }))
+          const data = { summary: event.summary || '', questions: event.questions! }
+          updateMessage(chat.id, reply.id, message => ({ ...message, questions: data }))
+          setSetup({ chatId: chat.id, data })
         } else if (event.type === 'done') {
           if (event.status === 'error') updateMessage(chat.id, reply.id, message => {
             const notice = message.blocks?.findLast(block => block.type === 'text' && block.channel === 'narration')
@@ -121,7 +134,7 @@ export function ChatApp({ projectId, runtimeToken, embedded = false, initialProm
         } else if (event.type === 'notice') {
           setWarning(event.message || '')
         }
-      }, { projectId, runtimeToken, answers, provider })
+      }, { projectId, runtimeToken, answers, provider, approval })
       updateMessage(chat.id, reply.id, message => ({ ...message, status: message.error ? 'error' : 'done' }))
     } catch (error) {
       updateMessage(chat.id, reply.id, message => ({
@@ -136,10 +149,10 @@ export function ChatApp({ projectId, runtimeToken, embedded = false, initialProm
     }
   }
 
-  const send = () => {
-    const text = draft.trim()
+  const send = (override?: string) => {
+    const text = (override ?? draft).trim()
     if (!text || controller.current || (id && !active)) return
-    const chat = active || { id: crypto.randomUUID(), title: text.slice(0, 48), messages: [], updatedAt: Date.now() }
+    const chat = active || { id: crypto.randomUUID(), title: projectTitle(text), messages: [], updatedAt: Date.now() }
     // Discard incomplete assistant turns before sending the next prompt.
     const context: Message[] = [...chat.messages.filter(message => message.role === 'user' || message.status === 'done'), {
       id: crypto.randomUUID(), role: 'user', content: text,
@@ -162,18 +175,29 @@ export function ChatApp({ projectId, runtimeToken, embedded = false, initialProm
 
   const confirmRequirements = (answers: Record<string, string>) => {
     if (!active || busy) return
-    const questionData = active.messages.findLast(item => item.questions)?.questions
-    const descriptions = questionData?.questions.map(question => `${question.question}: ${question.options.find(option => option.id === answers[question.id])?.label || answers[question.id]}`).join('\n') || ''
-    const message: Message = { id: crypto.randomUUID(), role: 'user', content: 'Project requirements confirmed: ' + JSON.stringify(answers) + '\n' + descriptions + '\nBuild now using tools. Place and connect the circuit components, generate and compile firmware only if the prototype requires a microcontroller, and inspect available real results. Ask if a required capability is unavailable.' }
+    const questionData = setup?.chatId === active.id ? setup.data : active.messages.findLast(item => item.questions)?.questions
+    setSetup(null)
+    const descriptions = questionData?.questions.map(question => `${question.question}: ${question.options.find(option => option.id === answers[question.id])?.label || (answers[question.id] === 'ai_choose' ? 'Let AI choose a suitable supported option' : answers[question.id])}`).join('\n') || ''
+    const message: Message = { id: crypto.randomUUID(), role: 'user', hidden: true, content: 'Project requirements confirmed: ' + JSON.stringify(answers) + '\n' + descriptions + '\nBuild now using tools. Place and connect the circuit components, generate and compile firmware only if the prototype requires a microcontroller, and inspect available real results. Ask if a required capability is unavailable.' }
     void generate(active, [...active.messages.filter(item => item.role === 'user' || (item.status === 'done' && item.content)), message], answers)
     setAtBottom(true)
+  }
+
+  const chooseFeasibility = (assessmentId: string, choice: string) => {
+    if (!active || busy) return
+    const reviewed: Conversation = { ...active, messages: active.messages.map(message => message.feasibility?.id === assessmentId ? { ...message, feasibilityChoice: choice } : message) }
+    const message: Message = { id: crypto.randomUUID(), role: 'user', content: choice === 'hardware_only' ? 'Proceed with the reviewed project plan and its explicit limitations.' : choice === 'cancel' ? 'Cancel this build without changing the project.' : 'Return to planning; I want to revise this design.' }
+    void generate(reviewed, [...reviewed.messages.filter(item => item.role === 'user' || item.status === 'done'), message], reviewed.requirements, { assessment_id: assessmentId, choice })
   }
 
   const retry = () => {
     if (!active || busy) return
     const lastUser = active.messages.findLastIndex(message => message.role === 'user')
     if (lastUser < 0) return
-    void generate(active, active.messages.slice(0, lastUser + 1).filter(message => message.role === 'user' || message.status === 'done'))
+    const last = active.messages[lastUser]
+    const answeredReview = active.messages.slice(0, lastUser).findLast(message => message.feasibility && message.feasibilityChoice)
+    const approval = answeredReview?.feasibility && last.content.startsWith('Proceed with the reviewed') ? { assessment_id: answeredReview.feasibility.id, choice: answeredReview.feasibilityChoice! } : undefined
+    void generate(active, active.messages.slice(0, lastUser + 1).filter(message => message.role === 'user' || message.status === 'done'), active.requirements, approval)
     setAtBottom(true)
   }
 
@@ -215,13 +239,13 @@ export function ChatApp({ projectId, runtimeToken, embedded = false, initialProm
   )
 
   return (
-    <div className={`dark flex overflow-hidden text-neutral-100 ${embedded ? 'h-full min-h-0 bg-transparent' : 'h-svh bg-[#0a0a0a]'}`}>
+    <div className={`dark flex overflow-hidden text-neutral-100 ${embedded ? 'wireup-chat-embedded h-full min-h-0 w-full bg-transparent' : 'h-svh bg-[#0a0a0a]'}`}>
       {!embedded && <aside className="z-20 hidden w-64 shrink-0 flex-col border-r border-neutral-800/70 bg-[#101010] p-4 md:flex">{sidebar}</aside>}
       {drawer && <div className="fixed inset-0 z-40 md:hidden"><button aria-label="Close navigation" onClick={() => setDrawer(false)} className="absolute inset-0 bg-black/70" /><aside className="relative flex h-full w-[min(85vw,300px)] flex-col border-r border-neutral-800 bg-[#101010] p-4">{sidebar}</aside></div>}
-      <main className="relative isolate flex min-w-0 flex-1 flex-col">
+      <main className="relative isolate flex min-h-0 min-w-0 flex-1 flex-col">
         {!embedded && <div aria-hidden="true" className={`pointer-events-none absolute inset-0 -z-10 ${home ? '' : 'opacity-15'}`}><GradientOrb /></div>}
         <header className={`flex h-12 shrink-0 items-center justify-between gap-3 border-b border-neutral-800/60 px-3 sm:px-4 ${embedded ? 'bg-transparent' : 'bg-[#0a0a0a]/70 backdrop-blur-md'}`}>
-          <div className="flex min-w-0 items-center gap-3">{!embedded && <button onClick={() => setDrawer(true)} aria-label="Open sidebar" className="rounded-lg p-2 text-neutral-400 hover:text-white md:hidden"><Menu size={20} /></button>}{embedded && <img src="/wireup-logo.png" alt="" className="size-5 shrink-0 rounded object-contain" />}<span className="truncate text-[13px] font-medium text-neutral-200">{active?.title || 'WireUp agent'}</span></div>
+          <div className="flex min-w-0 items-center gap-3">{!embedded && <button onClick={() => setDrawer(true)} aria-label="Open sidebar" className="rounded-lg p-2 text-neutral-400 hover:text-white md:hidden"><Menu size={20} /></button>}<img src="/wireup-logo.png" alt="" className="size-5 shrink-0 rounded object-contain md:hidden" /><span className="truncate text-[13px] font-medium text-neutral-200">{active?.title || 'WireUp agent'}</span></div>
           {embedded ? <button onClick={() => { setEmbeddedId(undefined); setDraft('') }} className="flex shrink-0 items-center gap-1.5 rounded-md border border-neutral-800 px-2 py-1 text-xs text-neutral-400 hover:border-neutral-600 hover:text-neutral-200"><Plus size={13} /> New chat</button>
             : <span className="shrink-0 rounded-full border border-neutral-800 px-3 py-1 text-xs text-neutral-400">{selectedModel.label} <span className="hidden sm:inline">· LangGraph</span></span>}
         </header>
@@ -230,20 +254,24 @@ export function ChatApp({ projectId, runtimeToken, embedded = false, initialProm
           <button onClick={() => { setWarning(''); void checkHealth() }} className="ml-3 underline underline-offset-2">Check again</button>
         </div>}
         {id && !active ? <div className="flex flex-1 flex-col items-center justify-center gap-4 p-6 text-center"><MessageSquare className="text-neutral-500" size={32} /><h1 className="text-xl font-semibold">Conversation not found</h1><p className="text-sm text-neutral-400">This chat may have been deleted or saved in another browser.</p><Link to="/assistant" className="rounded-xl bg-white px-4 py-2 text-sm text-black">Start a new chat</Link></div>
-          : home && embedded ? <div className="flex min-h-0 flex-1 flex-col justify-end gap-4 p-4"><div className="text-sm leading-6 text-neutral-400"><p className="font-medium text-neutral-200">WireUp hardware agent</p><p>Ask me to read your circuit, edit firmware, connect components, compile, or run the simulator.</p></div><ChatComposer provider={provider} models={models} onProviderChange={changeProvider} value={draft} onChange={setDraft} onSend={send} onStop={() => controller.current?.abort()} busy={!!busy} /></div>
-          : home ? <div className="flex min-h-0 flex-1 flex-col justify-center overflow-y-auto px-4 py-10"><div className="mx-auto w-full max-w-3xl space-y-8"><div className="text-center"><h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">What can I help you build?</h1><p className="mt-3 text-sm text-neutral-400">Describe an idea, paste an error, or pick a starting point below.</p></div><ChatComposer provider={provider} models={models} onProviderChange={changeProvider} value={draft} onChange={setDraft} onSend={send} onStop={() => controller.current?.abort()} busy={!!busy} /><div className="flex flex-wrap justify-center gap-2">{['Help me build a landing page', 'Explain a complex idea', 'Review my code', 'Brainstorm a project'].map(prompt => <button key={prompt} onClick={() => setDraft(prompt)} className="rounded-lg border border-neutral-800 bg-neutral-900/95 px-4 py-2 text-xs text-neutral-300 hover:border-neutral-600 hover:text-white">{prompt}</button>)}</div></div></div>
+          : home && embedded ? <div className="flex min-h-0 flex-1 flex-col justify-end gap-3 p-4">
+              <div className="space-y-2">{['List compatible microcontrollers for simulation', 'Explain how to connect an LED to Arduino Uno', 'Compare Arduino Uno and ESP32 capabilities'].map(prompt => <button key={prompt} onClick={() => setDraft(prompt)} className="block w-full rounded-xl border border-neutral-800 bg-[#1b1c1f] px-4 py-2.5 text-left text-[13px] leading-5 text-neutral-200 transition-colors hover:border-neutral-600 hover:bg-[#202127]">{prompt}</button>)}</div>
+              <ChatComposer compact={embedded} provider={provider} models={models} onProviderChange={changeProvider} value={draft} onChange={setDraft} onSend={send} onStop={() => controller.current?.abort()} busy={!!busy} />
+            </div>
+          : home ? <div className="flex min-h-0 flex-1 flex-col justify-center overflow-y-auto px-4 py-10"><div className="mx-auto w-full max-w-3xl space-y-8"><div className="text-center"><h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">What can I help you build?</h1><p className="mt-3 text-sm text-neutral-400">Describe an idea, paste an error, or pick a starting point below.</p></div><ChatComposer compact={embedded} provider={provider} models={models} onProviderChange={changeProvider} value={draft} onChange={setDraft} onSend={send} onStop={() => controller.current?.abort()} busy={!!busy} /><div className="flex flex-wrap justify-center gap-2">{['Help me build a landing page', 'Explain a complex idea', 'Review my code', 'Brainstorm a project'].map(prompt => <button key={prompt} onClick={() => setDraft(prompt)} className="rounded-lg border border-neutral-800 bg-neutral-900/95 px-4 py-2 text-xs text-neutral-300 hover:border-neutral-600 hover:text-white">{prompt}</button>)}</div></div></div>
             : <>
               <div ref={scrollRef} onScroll={event => {
                 const node = event.currentTarget
                 setAtBottom(node.scrollHeight - node.scrollTop - node.clientHeight < 100)
-              }} className={`min-h-0 flex-1 overflow-y-auto px-4 sm:px-6 ${embedded ? 'py-4' : 'py-8'}`}>
+              }} className={`min-h-0 flex-1 overflow-y-auto ${embedded ? 'px-3 py-3' : 'px-4 py-8 sm:px-6'}`}>
                 <div className="mx-auto max-w-3xl space-y-6" role="log" aria-label="Conversation">
-                  {active!.messages.map((message, index) => <MessageView key={message.id} message={message} onConfirm={confirmRequirements} busy={!!busy} retry={!busy && index === active!.messages.length - 1 && message.role === 'assistant' ? retry : undefined} />)}
+                  {active!.messages.map((message, index) => message.hidden ? null : <MessageView key={message.id} message={message} onOpenQuestions={() => { if (message.questions) setSetup({chatId:active!.id,data:message.questions}) }} onFeasibility={chooseFeasibility} busy={!!busy} retry={!busy && index === active!.messages.length - 1 && message.role === 'assistant' ? retry : undefined} />)}
                 </div>
               </div>
-              {!atBottom && <button onClick={() => setAtBottom(true)} className="absolute bottom-44 right-6 rounded-full border border-neutral-700 bg-neutral-900 p-3 shadow-lg" aria-label="Scroll to latest message"><ArrowDown size={18} /></button>}
-              <div className={`shrink-0 bg-gradient-to-t px-4 pb-3 pt-4 sm:px-6 ${embedded ? 'from-[#17181c] via-[#17181c]/95' : 'from-[#0a0a0a] via-[#0a0a0a]/95'}`}><div className="mx-auto max-w-3xl"><ChatComposer provider={provider} models={models} onProviderChange={changeProvider} value={draft} onChange={setDraft} onSend={send} onStop={() => controller.current?.abort()} busy={!!busy} /><p className="mt-2 text-center text-[10px] text-neutral-600">AI can make mistakes.</p></div></div>
+              {!atBottom && <button onClick={() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' }); setAtBottom(true) }} className="absolute bottom-44 right-6 rounded-full border border-neutral-700 bg-neutral-900 p-3 shadow-lg" aria-label="Scroll to latest message"><ArrowDown size={18} /></button>}
+              <div className={`shrink-0 bg-gradient-to-t ${embedded ? 'px-2 pt-2 pb-1 from-[#17181c] via-[#17181c]/95' : 'px-4 pt-4 pb-3 sm:px-6 from-[#0a0a0a] via-[#0a0a0a]/95'}`}><div className="mx-auto max-w-3xl"><ChatComposer compact={embedded} provider={provider} models={models} onProviderChange={changeProvider} value={draft} onChange={setDraft} onSend={send} onStop={() => controller.current?.abort()} busy={!!busy} /><p className="mt-2 text-center text-[10px] text-neutral-600">AI can make mistakes.</p></div></div>
             </>}
+      {setup && setup.chatId === active?.id && <ProjectSetupCard data={setup.data} busy={!!busy} onConfirm={confirmRequirements} onClose={() => setSetup(null)}/>}
       </main>
       {rename && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4"><form role="dialog" aria-modal="true" aria-labelledby="rename-title" onSubmit={event => { event.preventDefault(); if (!rename.value.trim()) return; setChats(previous => previous.map(chat => chat.id === rename.id ? { ...chat, title: rename.value.trim().slice(0, 80) } : chat)); setRename(null) }} className="w-full max-w-sm rounded-2xl border border-neutral-700 bg-neutral-900 p-6"><h2 id="rename-title" className="mb-4 text-lg font-semibold">Rename conversation</h2><input autoFocus aria-label="Conversation name" value={rename.value} maxLength={80} onChange={event => setRename({ ...rename, value: event.target.value })} className="w-full rounded-lg border border-neutral-600 bg-neutral-950 p-3 text-sm outline-none focus:border-neutral-500" /><div className="mt-5 flex justify-end gap-3"><button type="button" onClick={() => setRename(null)} className="px-3 py-2 text-sm text-neutral-400">Cancel</button><button type="submit" disabled={!rename.value.trim()} className="rounded-lg bg-white px-4 py-2 text-sm text-black disabled:opacity-40">Save</button></div></form></div>}
       {deleting && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4"><div role="dialog" aria-modal="true" aria-labelledby="delete-title" className="w-full max-w-sm rounded-2xl border border-neutral-700 bg-neutral-900 p-6"><h2 id="delete-title" className="text-lg font-semibold">Delete conversation?</h2><p className="mt-3 text-sm text-neutral-400">This removes the conversation from this browser and cannot be undone.</p><div className="mt-5 flex justify-end gap-3"><button autoFocus onClick={() => setDeleting(null)} className="px-3 py-2 text-sm text-neutral-400">Cancel</button><button onClick={deleteChat} className="rounded-lg bg-red-500 px-4 py-2 text-sm text-white">Delete conversation</button></div></div></div>}
@@ -251,20 +279,22 @@ export function ChatApp({ projectId, runtimeToken, embedded = false, initialProm
   )
 }
 
-function MessageView({ message, retry, onConfirm, busy }: { message: Message; retry?: () => void; onConfirm: (answers: Record<string, string>) => void; busy: boolean }) {
+function MessageView({ message: originalMessage, retry, onOpenQuestions, onFeasibility, busy }: { message: Message; retry?: () => void; onOpenQuestions: () => void; onFeasibility: (id: string, choice: string) => void; busy: boolean }) {
+  const message = useTypedMessage(originalMessage)
   const [copied, setCopied] = useState(false)
   const [copyError, setCopyError] = useState('')
   return (
     <article aria-label={`${message.role === 'user' ? 'You' : 'WireUp'} message`} className={message.role === 'user' ? 'ml-auto max-w-[88%] rounded-xl border border-neutral-800 bg-neutral-800/40 px-3.5 py-2.5' : 'min-w-0'}>
       <div className="mb-1.5 flex items-center gap-2 text-[11px] font-medium text-neutral-500">{message.role === 'assistant' && <img src="/wireup-logo.png" alt="" className="size-4 rounded object-contain" />}{message.role === 'user' ? 'You' : 'WireUp'}</div>
-      {message.questions && <ProjectQuestionForm data={message.questions} onConfirm={onConfirm} disabled={busy} />}
+      {message.feasibility && <FeasibilityCard report={message.feasibility} onChoose={onFeasibility} busy={busy} selected={message.feasibilityChoice} />}
+      {message.questions && <button type="button" onClick={onOpenQuestions} disabled={busy} className="my-3 rounded-lg border border-neutral-700 px-4 py-2 text-xs text-neutral-200">Open project setup · {message.questions.questions.length} questions</button>}
       {message.role === 'assistant' && message.blocks?.length ? <AgentActivityFeed blocks={message.blocks} running={message.status === 'streaming'} outcome={message.status === 'streaming' ? undefined : message.status} startedAt={message.startedAt} elapsedMs={message.elapsedMs} /> : null}
       {message.role === 'user' ? <p className="whitespace-pre-wrap break-words text-sm leading-6">{message.content}</p> : !message.blocks?.length ? <div className="chat-markdown text-sm leading-6"><ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: ({ children, href }) => <a href={href} target="_blank" rel="noopener noreferrer">{children}</a> }}>{message.content}</ReactMarkdown></div> : null}
-      {message.status === 'streaming' && <div role="status" className="mt-2 flex items-center gap-2 text-xs text-neutral-400" aria-label="Generating response"><span className="size-1.5 animate-pulse rounded-full bg-neutral-400" /><span>Agent is working. You can stop generation.</span></div>}
+      {message.status === 'streaming' && <div role="status" className="mt-2 flex items-center gap-2 text-xs text-neutral-400" aria-label="Generating response"><AgentGears/><span>Agent is working. You can stop generation.</span></div>}
       {message.error && <p role="alert" className="mt-3 rounded-lg border border-red-400/20 bg-red-400/5 p-3 text-sm text-red-300">{message.error}</p>}
       {message.status === 'stopped' && <p className="mt-2 text-xs text-neutral-500">Response stopped.</p>}
       {message.role === 'assistant' && message.status !== 'streaming' && <div className="mt-3 flex items-center gap-3 text-neutral-500">
-        {message.content && <button aria-label="Copy response" onClick={async () => { try { await navigator.clipboard.writeText(message.content); setCopied(true); setCopyError(''); setTimeout(() => setCopied(false), 2000) } catch { setCopyError('Copy failed. Select the response text to copy it.') } }} className="flex items-center gap-1.5 text-xs hover:text-white">{copied ? <Check size={14} /> : <Copy size={14} />}{copied ? 'Copied' : 'Copy'}</button>}
+        {message.content && <button aria-label="Copy response" onClick={async () => { try { await navigator.clipboard.writeText(originalMessage.content); setCopied(true); setCopyError(''); setTimeout(() => setCopied(false), 2000) } catch { setCopyError('Copy failed. Select the response text to copy it.') } }} className="flex items-center gap-1.5 text-xs hover:text-white">{copied ? <Check size={14} /> : <Copy size={14} />}{copied ? 'Copied' : 'Copy'}</button>}
         {retry && <button onClick={retry} className="flex items-center gap-1.5 text-xs hover:text-white"><RotateCcw size={14} />{message.status === 'done' ? 'Regenerate' : 'Retry'}</button>}
       </div>}
       {copyError && <p role="status" className="mt-2 text-xs text-amber-300">{copyError}</p>}

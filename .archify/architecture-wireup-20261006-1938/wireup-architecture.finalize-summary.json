@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "ok": true,
+  "command": "finalize",
+  "status": "pass",
+  "type": "architecture",
+  "quality": "showcase",
+  "specification": {
+    "path": "C:\\Users\\admin\\Downloads\\simply\\.archify\\architecture-wireup-20261006-1938\\candidate.json",
+    "sha256": "0617aa70b3afd06031b00e4039621c5664bb31ed3c7b633a806ba7198af4d76f",
+    "bytes": 9527
+  },
+  "artifact": {
+    "path": "C:\\Users\\admin\\Downloads\\simply\\.archify\\architecture-wireup-20261006-1938\\wireup-architecture.html",
+    "sha256": "c05d287b89641e9d3145012cb2b7976570473cbd062bb255c92579a7a1bccbff",
+    "bytes": 776919
+  },
+  "gates": {
+    "validate": "pass",
+    "deliver": "pass",
+    "check": "pass",
+    "browser-check": "pass"
+  },
+  "diagnostics": [],
+  "diagnosticSummary": {
+    "total": 0,
+    "shown": 0,
+    "truncated": false
+  },
+  "evidence": {
+    "receipt": "C:\\Users\\admin\\Downloads\\simply\\.archify\\architecture-wireup-20261006-1938\\wireup-architecture.finalize.json",
+    "summaryReceipt": "C:\\Users\\admin\\Downloads\\simply\\.archify\\architecture-wireup-20261006-1938\\wireup-architecture.finalize-summary.json",
+    "browserCheckReceipt": "C:\\Users\\admin\\Downloads\\simply\\.archify\\architecture-wireup-20261006-1938\\wireup-architecture.browser-check.json"
+  },
+  "update": {
+    "status": "current",
+    "installedVersion": "3.0.1",
+    "availableVersion": "3.0.1",
+    "releaseNotes": null,
+    "checkedAt": "2026-10-06T14:12:26.599Z",
+    "source": "cache",
+    "noticeRequired": false,
+    "noticeText": null
+  },
+  "visualReview": "not-requested",
+  "durationMs": 23447,
+  "visualReviewRecommendation": {
+    "action": "inspect-route-readability",
+    "signals": {
+      "routesOverSuggestedBends": 1
+    },
+    "reason": "Automated gates passed, but crossings or detours still need perceptual review before claiming visual quality.",
+    "affectedRoutes": {
+      "crossings": [],
+      "detours": [
+        {
+          "relationship": {
+            "id": "hardware-to-remote",
+            "from": "hardware",
+            "to": "remote-runtime",
+            "label": "optional remote sessions",
+            "collectionIndex": 11,
+            "artifactIndex": 12
+          },
+          "bends": 3,
+          "stretch": 1.054
+        }
+      ],
+      "truncated": false
+    },
+    "hints": [
+      "hardware → remote-runtime needs 3 bends: move node hardware or remote-runtime so they share a row or column with matching centers, or sit diagonally with a clear corner."
+    ],
+    "repair": "Trace these relationships at the desktop viewport. For Architecture, use references/architecture-layout-repair.md: reflow a blocked main path or tangled connected scene, and repair an isolated defect locally only when the surrounding composition is accepted. Preserve all semantic content and user-fixed geometry. Rerun finalize once after the edit."
+  }
+}

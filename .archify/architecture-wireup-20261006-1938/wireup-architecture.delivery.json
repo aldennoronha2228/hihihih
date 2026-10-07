@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "89eea9e8-02f7-4b72-a4db-30861ecf86a0",
+  "status": "current",
+  "command": "deliver",
+  "type": "architecture",
+  "input": "C:\\Users\\admin\\Downloads\\simply\\.archify\\architecture-wireup-20261006-1938\\candidate.json",
+  "output": "C:\\Users\\admin\\Downloads\\simply\\.archify\\architecture-wireup-20261006-1938\\wireup-architecture.html",
+  "specification": {
+    "sha256": "0617aa70b3afd06031b00e4039621c5664bb31ed3c7b633a806ba7198af4d76f",
+    "bytes": 9527
+  },
+  "artifact": {
+    "sha256": "c05d287b89641e9d3145012cb2b7976570473cbd062bb255c92579a7a1bccbff",
+    "bytes": 776919
+  }
+}

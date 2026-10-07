@@ -32,7 +32,7 @@ def test_bedrock_bearer_auth_is_explicit(monkeypatch):
     assert bedrock_configured()
 
 
-def test_removed_iam_settings_cannot_override_api_key(monkeypatch):
+def test_explicit_iam_environment_takes_precedence_over_local_bearer(monkeypatch):
     from backend import bedrock_model as module
     monkeypatch.setenv('AWS_ACCESS_KEY_ID', 'old-access')
     monkeypatch.setenv('AWS_SECRET_ACCESS_KEY', 'old-secret')
@@ -41,9 +41,9 @@ def test_removed_iam_settings_cannot_override_api_key(monkeypatch):
     monkeypatch.setattr(module, 'dotenv_values', lambda path: {'BEDROCK_API_KEY': 'current-bearer', 'BEDROCK_MODEL_ID': 'zai.glm-5'})
     monkeypatch.setattr(module, 'ChatBedrockConverse', lambda **kwargs: kwargs)
     model = build_bedrock('zai.glm-5')
-    assert model['bedrock_api_key'] == 'current-bearer'
-    assert model['aws_access_key_id'] is None
-    assert model['aws_secret_access_key'] is None
+    assert model['bedrock_api_key'] is None
+    assert model['aws_access_key_id'] == 'old-access'
+    assert model['aws_secret_access_key'] == 'old-secret'
 
 
 def test_forced_tools_map_to_converse_any(monkeypatch):

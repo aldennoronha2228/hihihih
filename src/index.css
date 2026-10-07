@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+.wireup-agent-gears{position:relative;display:inline-block;width:30px;height:28px;flex:0 0 30px;color:#a3a3a3}.wireup-agent-gears svg{position:absolute;stroke-width:1.5;animation:wireup-gear-turn 4s linear infinite;transform-origin:center;will-change:transform;backface-visibility:hidden}.wireup-agent-gear-primary{width:18px;height:18px;left:0;top:0}.wireup-agent-gears .wireup-agent-gear-secondary{width:15px;height:15px;right:0;top:9px;animation-direction:reverse;animation-duration:3.33s}.wireup-agent-gears .wireup-agent-gear-small{width:11px;height:11px;left:6px;bottom:0;animation-duration:2.44s}@keyframes wireup-gear-turn{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.wireup-agent-gears svg{animation:none}}
+
+.wireup-composer-compact .wireup-rotating-placeholder span{font-size:12px!important;line-height:20px!important}.wireup-chat-embedded{align-self:stretch;overflow:hidden}.wireup-chat-embedded header span{font-size:11px}.wireup-chat-embedded [role=log] article p,.wireup-chat-embedded .chat-markdown{font-size:12px;line-height:1.65}.wireup-chat-embedded [role=log] article>div:first-child{font-size:10px}.wireup-chat-embedded button{font-size:11px}.wireup-chat-embedded .chat-markdown h1,.wireup-chat-embedded .chat-markdown h2,.wireup-chat-embedded .chat-markdown h3{font-size:13px}.wireup-composer-compact .wireup-prompt-compact{padding:8px!important;border-width:1px;border-radius:14px}.wireup-composer-compact textarea{min-height:28px!important;padding:0 2px!important;font-size:12px!important;line-height:20px!important;border:0!important;border-radius:0!important;resize:none!important;outline:none!important;background:transparent!important}.wireup-composer-compact .wireup-prompt-compact>div:last-child{margin-top:6px!important;padding-top:6px!important}.wireup-composer-compact button{min-height:30px!important;height:30px!important;max-width:100%;border-radius:7px!important}.wireup-composer-compact [aria-label='Message WireUp']{max-height:110px}.wireup-chat-embedded [role=log]{max-width:none;width:100%}
 .chat-markdown { overflow-wrap: anywhere; }
 .chat-markdown p + p { margin-top: 1rem; }
 .chat-markdown h1, .chat-markdown h2, .chat-markdown h3 { margin: 1.2rem 0 .5rem; font-weight: 600; font-size: 1.1rem; }
@@ -11,8 +14,6 @@
 .chat-markdown blockquote { border-left: 2px solid #4a8fd9; padding-left: 1rem; color: #a3a3a3; }
 .chat-markdown table { display: block; overflow-x: auto; border-collapse: collapse; margin: 1rem 0; }
 .chat-markdown th, .chat-markdown td { border: 1px solid #333; padding: .4rem .7rem; }
-
-body.chat-resizing-row { cursor: row-resize !important; user-select: none; }
 
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";

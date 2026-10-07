@@ -1,11 +1,15 @@
 import { readActivityStream } from '@/components/ui/agent-activity-feed'
+import type { FeasibilityReport } from '@/components/ui/feasibility-card'
 import type { ModelProvider } from '@/lib/model-selection'
 import type { ProjectQuestions } from '@/components/ui/project-questions'
 import type { ActivityBlock } from '@/components/ui/agent-activity-feed'
 
 export type Message = {
+  hidden?: boolean
   blocks?: ActivityBlock[]
   questions?: ProjectQuestions
+  feasibility?: FeasibilityReport
+  feasibilityChoice?: string
   id: string
   role: 'user' | 'assistant'
   content: string
@@ -16,7 +20,7 @@ export type Message = {
   model?: string
   usage?: { input_tokens: number; output_tokens: number; total_tokens: number; output_token_details?: { reasoning?: number } }
 }
-export type ChatEvent = { questions?: ProjectQuestions['questions']; summary?: string; status?: string; reason?: string; type: string; text?: string; message?: string; model?: string; elapsedMs?: number; usage?: Message['usage'] | null }
+export type ChatEvent = { id?: string; project_id?: string; revision?: number; issues?: FeasibilityReport['issues']; choices?: FeasibilityReport['choices']; questions?: ProjectQuestions['questions']; summary?: string; status?: string; reason?: string; type: string; text?: string; message?: string; model?: string; elapsedMs?: number; usage?: Message['usage'] | null }
 export type Conversation = { id: string; title: string; messages: Message[]; updatedAt: number; requirements?: Record<string, string>; projectId?: string }
 export const storageKey = 'wireup.chats.v1'
 
@@ -48,7 +52,7 @@ export function readChats(key = storageKey): { chats: Conversation[]; warning: s
 export async function streamReply(
   messages: Message[], signal: AbortSignal,
   onEvent: (event: ChatEvent) => void,
-  scope: { projectId?: string; runtimeToken?: string; answers?: Record<string, string>; provider?: ModelProvider } = {},
+  scope: { projectId?: string; runtimeToken?: string; answers?: Record<string, string>; provider?: ModelProvider; approval?: { assessment_id: string; choice: string } } = {},
 ) {
   const requestController = new AbortController()
   const cancel = () => requestController.abort(signal.reason)
@@ -59,12 +63,13 @@ export async function streamReply(
   try {
   const response = await fetch('/api/chat', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: requestController.signal,
-    body: JSON.stringify({ provider: scope.provider || 'groq', project_id: scope.projectId, runtime_token: scope.runtimeToken, project_answers: scope.answers, messages: messages.filter(m => m.role === 'user' || m.status === 'done').map(({ role, content }) => ({ role, content })) }),
+    body: JSON.stringify({ provider: scope.provider || 'groq', project_id: scope.projectId, runtime_token: scope.runtimeToken, project_answers: scope.answers, approval: scope.approval, messages: messages.filter(m => m.content.trim() && (m.role === 'user' || m.status === 'done')).map(({ role, content }) => ({ role, content })) }),
   })
   clearTimeout(timer)
   if (!response.ok) {
     const error = await response.json().catch(() => null)
-    throw new Error(typeof error?.detail === 'string' ? error.detail : `Chat request failed (${response.status}). Please try again.`)
+    const details = Array.isArray(error?.detail) ? error.detail.map((item: { loc?: (string | number)[]; msg?: string }) => `${item.loc?.filter(value => value !== 'body').join('.') || 'request'}: ${item.msg || 'Invalid value'}`).join('; ') : null
+    throw new Error(typeof error?.detail === 'string' ? error.detail : details || `Chat request failed (${response.status}). Please try again.`)
   }
   await readActivityStream(response, onEvent)
   } catch (error) {

@@ -7,9 +7,15 @@ from botocore.config import Config
 from backend.bedrock_chat import WireUpBedrockConverse as ChatBedrockConverse
 
 
+def bedrock_auth_mode():
+    local = dotenv_values(Path(__file__).resolve().parents[1] / '.env')
+    return os.getenv('BEDROCK_AUTH_MODE', local.get('BEDROCK_AUTH_MODE') or 'api_key')
+
+
 def bedrock_configured():
-    return bool(os.getenv('BEDROCK_API_KEY', '').strip() or (
-        os.getenv('AWS_ACCESS_KEY_ID', '').strip() and os.getenv('AWS_SECRET_ACCESS_KEY', '').strip()))
+    if bedrock_auth_mode() == 'iam':
+        return bool(os.getenv('AWS_ACCESS_KEY_ID', '').strip() and os.getenv('AWS_SECRET_ACCESS_KEY', '').strip())
+    return bedrock_auth_mode() == 'api_key' and bool(os.getenv('BEDROCK_API_KEY', '').strip())
 
 
 def bounded_number(name, default, lower, upper, integer=False):
@@ -36,9 +42,8 @@ def build_bedrock(model_name):
         'config': Config(connect_timeout=10, read_timeout=timeout, retries={'total_max_attempts': retries + 1}),
         'supports_tool_choice_values': ('auto', 'any'),
     }
-    local = dotenv_values(Path(__file__).resolve().parents[1] / '.env')
     bearer = os.getenv('BEDROCK_API_KEY', '').strip()
-    mode = local.get('BEDROCK_AUTH_MODE') or 'api_key'
+    mode = bedrock_auth_mode()
     if mode not in ('iam', 'api_key'):
         raise ValueError('BEDROCK_AUTH_MODE must be iam or api_key.')
     if mode == 'api_key':

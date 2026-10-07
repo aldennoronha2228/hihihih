@@ -1,4 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
+import { CircuitBoard } from 'lucide-react'
 import { hardwareApi, isHardwareProject } from '@/lib/hardware'
 import type { CatalogComponent, HardwareProject } from '@/lib/hardware'
 import type { HardwareRuntime, RuntimeResults } from '@/hardware/runtime'
@@ -8,6 +9,7 @@ import { ChatApp } from '@/components/chat-app'
 import { AllProjects } from '@/components/all-projects'
 import { ExamplesGallery } from '@/components/examples-gallery'
 import { PlatformHome } from '@/components/platform-home'
+import { WorkspaceLoading } from '@/components/ui/workspace-loading'
 
 const Preview = lazy(() => import('@/components/demo'))
 const SchematicStudio = lazy(() => import('@/components/schematic-studio').then(module => ({ default: module.SchematicStudio })))
@@ -58,13 +60,13 @@ function ProjectPage() {
     if (!project) return
     setProject(await hardwareApi.getProject(project.id))
   }
-  return <Suspense fallback={<div className="flex h-svh items-center justify-center bg-neutral-950 text-neutral-400">Loading hardware workspace…</div>}><HardwareWorkspace onProjectChange={onProjectChange} onRuntimeChange={setRuntime} onResultsChange={setResults} view={view} onViewChange={setView}
+  return <Suspense fallback={<div className="flex h-svh"><WorkspaceLoading/></div>}><HardwareWorkspace onProjectChange={onProjectChange} onRuntimeChange={setRuntime} onResultsChange={setResults} view={view} onViewChange={setView}
     analysisSlot={<><button disabled={solving || !project} onClick={() => void solve('dc')}>{solving ? 'Solving…' : 'DC Bias'}</button><button disabled={solving || !project} onClick={() => void solve('transient')}>Transient</button></>}
-    schematicSlot={project ? <SchematicStudio project={project} catalog={catalog} analog={analog} solving={solving} onSolve={solve}
+    schematicSlot={project ? <Suspense fallback={<div className="hw-schematic-empty"><CircuitBoard size={30} /><h2>Schematic view</h2><p>Loading the schematic studio…</p></div>}><SchematicStudio project={project} catalog={catalog} analog={analog} solving={solving} onSolve={solve}
       onMove={(id, x, y) => mutate('modify_component', { id, x, y })} onAddComponent={addComponent} onTune={(id, properties) => mutate('modify_component', { id, properties })}
       onUndo={undo} onReload={() => void reload()} selectedId={selected} onSelect={setSelected} onConnect={(from, to) => mutate('connect_wire', { from, to })}
-      runtime={runtime} results={results} solveError={solveError} /> : null}
-    oscilloscopeSlot={<HardwareInstruments runtime={runtime} results={results} analogResult={analog?.projectRevision === project?.revision ? analog : null} />}
+      runtime={runtime} results={results} solveError={solveError} /></Suspense> : null}
+    oscilloscopeSlot={<Suspense fallback={null}><HardwareInstruments runtime={runtime} results={results} analogResult={analog?.projectRevision === project?.revision ? analog : null} /></Suspense>}
     chatSlot={<ChatApp key={project?.id || 'none'} embedded initialPrompt={initialPrompt} setupGuidance={setupGuidance} projectId={project?.id} runtimeToken={project?.runtime_token} />} /></Suspense>
 }
 
