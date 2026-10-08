@@ -1,0 +1,22 @@
+import {expect,test} from '@playwright/test'
+test('Uno BMP280 reads real Adafruit temperature and pressure',async({page,request})=>{
+ test.setTimeout(180000)
+ const project=await(await request.post('/api/hardware/projects',{data:{name:'BMP280 weather',board:'arduino-uno'}})).json()
+ const command=async(name:string,args:Record<string,unknown>)=>{const r=await request.post(`/api/hardware/project/${project.id}/command`,{data:{name,args}});expect(r.ok(),await r.text()).toBe(true);return r.json()}
+ await command('add_component',{type:'bmp280',id:'bmp',properties:{temperature:24,pressure:1013.25},x:450,y:150})
+ for(const [pin,target] of [['3.3V','VCC'],['GND','GND'],['A4','SDA'],['A5','SCL']])await command('connect_wire',{from:{component:'board',pin},to:{component:'bmp',pin:target}})
+ await command('generate_firmware',{source:'#include <Wire.h>\n#include <Adafruit_BMP280.h>\nAdafruit_BMP280 bmp;\nvoid setup(){Serial.begin(9600);if(!bmp.begin(0x76)){Serial.println("BMP failed");while(true)delay(100);}}\nvoid loop(){Serial.print(bmp.readTemperature(),1);Serial.print(",");Serial.println(bmp.readPressure()/100.0,1);delay(500);}'})
+ await page.goto(`/project/${project.id}`)
+ await page.getByRole('button',{name:'Compile',exact:true}).click()
+ await expect(page.getByRole('button',{name:'Run',exact:true})).toBeEnabled({timeout:100000})
+ await page.getByRole('button',{name:'Run',exact:true}).click()
+ await page.getByRole('button',{name:'Serial monitor',exact:true}).click()
+ await expect(page.getByLabel('Serial output',{exact:true})).toContainText(/24\.\d,1013\.\d/,{timeout:20000})
+ await page.getByRole('button',{name:'Stop',exact:true}).click()
+ const next=await command('modify_component',{id:'bmp',properties:{temperature:30,pressure:950}})
+ await page.evaluate(project=>window.dispatchEvent(new CustomEvent('wireup:project-changed',{detail:{project}})),next)
+ await page.getByRole('button',{name:'Run',exact:true}).click()
+ await page.getByRole('button',{name:'Serial monitor',exact:true}).click()
+ await expect(page.getByLabel('Serial output',{exact:true})).toContainText(/30\.\d,950\.\d/,{timeout:20000})
+ await page.getByRole('button',{name:'Stop',exact:true}).click()
+})

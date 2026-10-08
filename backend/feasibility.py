@@ -75,7 +75,7 @@ def assess(service, project_id, plan):
             if not entry.get('pins'):
                 blocked = True
                 issue(kind+'_pins', 'Pins are not verified', f'We can show {entry.get("name", kind)}, but cannot connect it accurately yet.', 'Its connectable pins are missing from the verified catalog.', 'Revise the design to a part with verified pins; do not silently substitute.')
-            simulated = kind in (ANALOG_PARTS if board == 'none' else SIMULATED_PARTS) or kind == board
+            simulated = kind in (ANALOG_PARTS if board == 'none' else SIMULATED_PARTS) or kind == board or board in entry.get('simulation_boards', [])
             if not simulated:
                 issue(kind+'_runtime', 'Behavior is not simulated', f'We can place {entry.get("name",kind)}; the current runtime cannot verify its behavior.', 'A visible component is not the same as an implemented emulator model.')
             if kind == 'servo' or 'motor' in kind:

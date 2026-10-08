@@ -13,6 +13,7 @@ import secrets
 import shutil
 import tempfile
 import threading
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -66,11 +67,12 @@ for board_id, name, target, chip, bootloader_offset in [
     ('esp32-c3', 'ESP32-C3 DevKitM-1', 'esp32c3', 'esp32c3', 0),
 ]:
     BOARDS.append({'id': board_id, 'name': name, 'fqbn': f'esp32:esp32:{target}',
-                   'compile': True, 'simulation': 'unavailable', 'format': 'bin', 'runtime': 'qemu',
+                   'compile': True, 'simulation': 'browser' if chip in ('esp32c3', 'esp32s3') else 'unavailable', 'format': 'bin', 'runtime': 'esp-emu-wasm' if chip in ('esp32c3', 'esp32s3') else 'qemu',
                    'tagName': 'wokwi-' + board_id, 'chip': chip, 'bootloader_offset': bootloader_offset,
                    'flash_size_bytes': 4 * 1024 * 1024, 'compile_timeout_seconds': 600,
                    'wifi': False, 'bluetooth': False,
-                   'unavailable_reason': 'ESP32 simulation requires a configured native Espressif QEMU runtime.'})
+                   'simulation_scope': 'Official Espressif WASM CPU, UART0 and sampled external GPIO; no connected sensor buses or real networking' if chip in ('esp32c3', 'esp32s3') else None,
+                   'unavailable_reason': 'Classic ESP32 requires the compatible patched native Velxio QEMU runtime; the official WASM emulator does not support this chip.' if chip == 'esp32' else None})
 for model in (3, 4, 5):
     BOARDS.append({'id': f'raspberry-pi-{model}', 'name': f'Raspberry Pi {model}', 'fqbn': None,
                    'compile': False, 'simulation': 'unavailable', 'format': None, 'runtime': 'qemu-linux',
@@ -101,6 +103,18 @@ PIN_LAYOUTS = {
     'rgb-led': ['R', 'G', 'B', 'COM'], 'neopixel': ['VDD', 'VSS', 'DIN', 'DOUT'],
 }
 # Pin names match the installed Wokwi DevKit V1 element and vendored Esp32Element wrappers.
+PIN_LAYOUTS['slide-potentiometer'] = ['VCC', 'SIG', 'GND']
+PIN_LAYOUTS['ssd1306'] = ['DATA', 'CLK', 'DC', 'RST', 'CS', '3V3', 'VIN', 'GND']
+PIN_LAYOUTS['ssd1306-i2c-4pin'] = ['GND', 'VCC', 'SCL', 'SDA']
+PIN_LAYOUTS['lcd1602-i2c'] = ['GND', 'VCC', 'SDA', 'SCL']
+PIN_LAYOUTS['lcd2004-i2c'] = ['GND', 'VCC', 'SDA', 'SCL']
+PIN_LAYOUTS['ntc-temperature-sensor'] = ['GND', 'VCC', 'OUT']
+PIN_LAYOUTS['photoresistor-sensor'] = ['VCC', 'GND', 'DO', 'AO']
+PIN_LAYOUTS['pir-motion-sensor'] = ['VCC', 'OUT', 'GND']
+PIN_LAYOUTS['mpu6050'] = ['INT', 'AD0', 'XCL', 'XDA', 'SDA', 'SCL', 'GND', 'VCC']
+PIN_LAYOUTS['ds1307'] = ['GND', '5V', 'SDA', 'SCL', 'SQW']
+PIN_LAYOUTS['ds3231'] = ['GND', 'VCC', 'SDA', 'SCL']
+PIN_LAYOUTS['bmp280'] = ['SDA', 'SCL', 'GND', 'VCC']
 PIN_LAYOUTS.update({
     'esp32-devkit-v1': ['VIN', 'GND.2', 'D13', 'D12', 'D14', 'D27', 'D26', 'D25', 'D33', 'D32',
                          'D35', 'D34', 'VN', 'VP', 'EN', '3V3', 'GND.1', 'D15', 'D2', 'D4',
@@ -335,8 +349,40 @@ class ComponentCatalog:
                         descriptor['type'] = 'boolean'
                     elif type(default) in (int, float):
                         descriptor['type'] = 'number'
+            if item['id'] in ('ntc-temperature-sensor', 'photoresistor-sensor'):
+                name, default, minimum, maximum = ('temperature', 25, -40, 125) if item['id'] == 'ntc-temperature-sensor' else ('lux', 500, 0, 1000)
+                entry.setdefault('defaultValues', {})[name] = default
+                if not any(prop['name'] == name for prop in entry.setdefault('properties', [])):
+                    entry['properties'].append({'name':name,'type':'number','min':minimum,'max':maximum,'defaultValue':default,'control':'range'})
+            if item['id'] == 'ssd1306' and not any(prop['name'] == 'protocol' for prop in entry.setdefault('properties', [])):
+                entry['properties'].append({'name':'protocol','type':'select','options':['i2c','spi'],'defaultValue':'i2c','control':'select'})
+            if item['id'] == 'hc-sr04':
+                entry.setdefault('defaultValues', {})['distance'] = 10
+                if not any(prop['name'] == 'distance' for prop in entry.setdefault('properties', [])):
+                    entry['properties'].append({'name': 'distance', 'type': 'number', 'min': 2, 'max': 400, 'defaultValue': 10, 'control': 'range', 'unit': 'cm'})
+            if item['id'] == 'bmp280':
+                for name, default, minimum, maximum in [('temperature', 24, -40, 85), ('pressure', 1013.25, 300, 1100)]:
+                    entry.setdefault('defaultValues', {})[name] = default
+                    if not any(prop['name'] == name for prop in entry.setdefault('properties', [])):
+                        entry['properties'].append({'name':name,'type':'number','min':minimum,'max':maximum,'defaultValue':default,'control':'range'})
+                entry['properties'].append({'name':'i2cAddress','type':'select','options':['0x76','0x77'],'defaultValue':'0x76','control':'select'})
+                entry['defaultValues']['i2cAddress'] = '0x76'
+            if item['id'] == 'dht22':
+                for name, default, minimum, maximum in [('temperature', 25, -40, 80), ('humidity', 50, 0, 100)]:
+                    entry.setdefault('defaultValues', {})[name] = default
+                    if not any(prop['name'] == name for prop in entry.setdefault('properties', [])):
+                        entry['properties'].append({'name': name, 'type': 'number', 'min': minimum, 'max': maximum, 'defaultValue': default, 'control': 'range'})
+            if item['id'] in ('ntc-temperature-sensor', 'photoresistor-sensor', 'pir-motion-sensor'):
+                entry['simulation_boards'] = ['arduino-uno']
+                entry['simulation_scope'] = 'Existing Uno ADC/input model. NTC uses the original beta divider; photoresistor AO uses a simplified light-to-voltage mapping; PIR pulse uses browser wall time.'
+            if item['id'] in ('ssd1306', 'ssd1306-i2c-4pin', 'lcd1602-i2c', 'lcd2004-i2c', 'mpu6050', 'ds1307', 'ds3231', 'bmp280'):
+                entry['simulation_boards'] = ['arduino-uno']
+                entry['simulation_scope'] = ('Existing Velxio SSD1306 I2C or hardware SPI model on Uno. SPI uses MOSI11/SCK13 plus distinct CS/DC GPIO; correct supply/ground are required.' if item['id'] == 'ssd1306' else 'Existing Velxio I2C model on Uno A4/SDA and A5/SCL; requires correct power, ground and address. Other interfaces and chip features are not certified.')
             entry['pins'] = PIN_LAYOUTS.get(item['id'], [])
             entry['connectable'] = bool(entry['pins'])
+            if item['id'] in ('potentiometer', 'servo', 'hc-sr04', 'slide-potentiometer', 'rgb-led', 'dht22'):
+                entry['simulation_boards'] = ['arduino-uno', 'arduino-nano', 'arduino-mega', 'pi-pico', 'pi-pico-w'] if item['id'] == 'potentiometer' else ['arduino-uno'] if item['id'] == 'slide-potentiometer' else ['arduino-uno', 'arduino-nano', 'arduino-mega']
+                entry['simulation_scope'] = {'potentiometer': 'ADC input from the Wokwi control; Nano A6/A7 are analog-only', 'slide-potentiometer': 'ADC input from the original slider control', 'rgb-led': 'Common-cathode digital/PWM channels; each channel requires a current-limiting resistor; no analog current model', 'dht22': 'Timed DHT22 protocol read by the Adafruit library; temperature/humidity controls, no physical environment model', 'servo': 'Angle from GPIO pulse widths; no torque or supply-current model', 'hc-sr04': 'Timed trigger/echo distance response; no acoustic interference model'}[item['id']]
             entry['pin_aliases'] = PIN_ALIASES.get(item['id'], {})
             entry['supported_board'] = item['id'] in BOARD_CONFIG if item.get('category') == 'boards' else None
             if item['id'] in BOARD_CONFIG:
@@ -613,7 +659,14 @@ class HardwareService:
         temporary = destination.with_suffix(f'.{uuid.uuid4().hex}.tmp')
         try:
             temporary.write_text(json.dumps(project, ensure_ascii=False, allow_nan=False), encoding='utf-8')
-            os.replace(temporary, destination)
+            for attempt in range(4):
+                try:
+                    os.replace(temporary, destination)
+                    break
+                except PermissionError:
+                    if os.name != 'nt' or attempt == 3:
+                        raise
+                    time.sleep(0.02 * (attempt + 1))
         finally:
             temporary.unlink(missing_ok=True)
 
@@ -1053,6 +1106,8 @@ def create_router(hardware_service):
         finally:
             hardware_service.runtime.detach(project_id, websocket)
 
+    from backend.board_flash import create_router as create_flash_router
+    api.include_router(create_flash_router(hardware_service, prefix=''))
     return api
 
 

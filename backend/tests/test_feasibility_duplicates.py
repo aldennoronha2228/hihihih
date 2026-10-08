@@ -3,7 +3,7 @@ from backend.feasibility import assess, authorize
 
 
 def plan():
-    return {'board': 'arduino-uno', 'behavior': 'Move a servo', 'parts': [{'type': 'servo', 'quantity': 1, 'purpose': 'movement'}], 'libraries': [], 'operations': ['add_component', 'run_simulation']}
+    return {'board': 'arduino-uno', 'behavior': 'Control a buzzer', 'parts': [{'type': 'buzzer', 'quantity': 1, 'purpose': 'movement'}], 'libraries': [], 'operations': ['add_component', 'run_simulation']}
 
 
 def test_identical_review_reuses_identity_and_approval(tmp_path):
@@ -37,7 +37,7 @@ def test_unrelated_project_revision_does_not_repeat_accepted_limitations(tmp_pat
     project = service.create_project()
     first = assess(service, project['id'], plan())
     authorize(service, project['id'], {'assessment_id': first['id'], 'choice': 'hardware_only'})
-    service._mutate(project['id'], 'add_component', {'type': 'servo', 'id': 'servo1'})
+    service._mutate(project['id'], 'add_component', {'type': 'buzzer', 'id': 'buzzer1'})
     result = assess(service, project['id'], plan())
     assert result['status'] == 'approved'
     assert result['revision'] != first['revision']

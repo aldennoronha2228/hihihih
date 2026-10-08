@@ -54,7 +54,8 @@ PartSimulationRegistry.register('rgb-led', {
         if (pin !== null) {
           unsubscribers.push(
             pinManager.onPinChange(pin, (_: number, state: boolean) => {
-              el[prop] = state ? 255 : 0;
+              const duty = pinManager.getPwmValue(pin);
+              el[prop] = duty > 0 ? Math.round(duty * 255) : state ? 255 : 0;
             }),
           );
         }

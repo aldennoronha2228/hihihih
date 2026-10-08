@@ -1,0 +1,27 @@
+import {expect,test} from '@playwright/test'
+for(const board of ['esp32-c3','esp32-s3'])test(`${board} boots real merged Arduino firmware and GPIO`,async({page,request})=>{
+ test.setTimeout(720000)
+ const project=await(await request.post('/api/hardware/projects',{data:{name:`Official ${board}`,board}})).json()
+ const command=async(name:string,args:Record<string,unknown>,timeout=30000)=>{const r=await request.post(`/api/hardware/project/${project.id}/command`,{data:{name,args},timeout});expect(r.ok(),await r.text()).toBe(true);return r.json()}
+ const pin=board==='esp32-c3'?2:4
+ await command('add_component',{type:'led',id:'led',x:420,y:150})
+ await command('connect_wire',{from:{component:'board',pin:String(pin)},to:{component:'led',pin:'A'}})
+ await command('connect_wire',{from:{component:'board',pin:'GND.1'},to:{component:'led',pin:'C'}})
+ await command('generate_firmware',{source:`void setup(){Serial.begin(115200);pinMode(${pin},OUTPUT);Serial.println("OFFICIAL_SETUP");}\nvoid loop(){digitalWrite(${pin},HIGH);Serial.println("OFFICIAL_HIGH");delay(200);digitalWrite(${pin},LOW);Serial.println("OFFICIAL_LOW");delay(200);}`})
+ const result=await command('compile_firmware',{},650000)
+ expect(result.artifact?.image_kind).toBe('merged-flash')
+ await page.goto(`/project/${project.id}`)
+ await expect(page.getByRole('button',{name:'Run',exact:true})).toBeEnabled({timeout:30000})
+ await page.getByRole('button',{name:'Run',exact:true}).click()
+ await expect(page.getByRole('button',{name:'Stop',exact:true})).toBeVisible({timeout:60000})
+ await page.getByRole('button',{name:'Serial monitor',exact:true}).click()
+ await expect(page.getByLabel('Serial output',{exact:true})).toContainText('OFFICIAL_HIGH',{timeout:60000})
+ await expect(page.getByLabel('Serial output',{exact:true})).toContainText('OFFICIAL_LOW',{timeout:60000})
+ await expect.poll(()=>page.locator('wokwi-led').evaluate(element=>(element as HTMLElement &{value:boolean}).value),{timeout:10000}).toBe(true)
+ await expect.poll(()=>page.locator('wokwi-led').evaluate(element=>(element as HTMLElement &{value:boolean}).value),{timeout:10000}).toBe(false)
+ await page.getByRole('button',{name:'Stop',exact:true}).click()
+ await expect(page.getByRole('button',{name:'Run',exact:true})).toBeVisible()
+ await page.getByRole('button',{name:'Run',exact:true}).click()
+ await expect(page.getByRole('button',{name:'Stop',exact:true})).toBeVisible({timeout:60000})
+ await page.getByRole('button',{name:'Stop',exact:true}).click()
+})

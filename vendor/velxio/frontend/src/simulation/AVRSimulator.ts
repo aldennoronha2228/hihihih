@@ -638,7 +638,16 @@ const ATMEGA2560_PERIPHERALS: AtmegaPeripheralConfigs = {
   ],
   spi: { ...spiConfig, spiInterrupt: 0x30 },
   twi: { ...twiConfig, twiInterrupt: 0x4e },
-  adc: { ...adcConfig, adcInterrupt: 0x3a },
+  adc: {
+    ...adcConfig,
+    adcInterrupt: 0x3a,
+    numChannels: 16,
+    muxInputMask: 0x3f,
+    muxChannels: {
+      ...adcConfig.muxChannels,
+      ...Object.fromEntries(Array.from({ length: 8 }, (_, channel) => [0x20 + channel, { type: ADCMuxInputType.SingleEnded, channel: channel + 8 }])),
+    },
+  },
   eeprom: { ...eepromConfig, eepromReadyInterrupt: 0x3c },
 };
 

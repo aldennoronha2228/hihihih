@@ -46,7 +46,10 @@ export function HardwarePart({ part, runtime, pinsChanged }: {
     }
   }, [part.id, part.type, runtime, pinsChanged])
   useEffect(() => {
-    if (element.current) Object.assign(element.current, part.properties)
-  }, [part.properties])
+    if (element.current) {
+      Object.assign(element.current, part.properties)
+      runtime?.updateComponentProperties(part.id, part.properties)
+    }
+  }, [part.id, part.properties, runtime])
   return <div className="hw-part-element" ref={host}>{unavailable && <div className="hw-unavailable">{part.type}<small>Element unavailable · placement only</small></div>}</div>
 }

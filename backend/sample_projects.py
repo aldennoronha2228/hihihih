@@ -77,6 +77,10 @@ def normalize_template(example, catalog, library_free=True):
     if example.get('languageMode', 'arduino') != 'arduino':
         raise ValueError('Only Arduino firmware is supported.')
     board = boards[0]
+    if not BOARD_CONFIG[board]['compile']:
+        raise ValueError('The selected board does not support Arduino firmware compilation.')
+    if not catalog.components.get(board, {}).get('pins'):
+        raise ValueError(f'Missing verified pins for {board}.')
     source = source_text(example_source(example))
     if library_free and (example.get('libraries') or re.search(r'^\s*#\s*include', source, re.MULTILINE)):
         raise ValueError('Starters must not require additional libraries.')
@@ -93,12 +97,23 @@ def normalize_template(example, catalog, library_free=True):
         entry = catalog.components.get(kind)
         if not entry:
             raise ValueError(f'Unknown component type {kind}.')
+        if not entry.get('pins'):
+            raise ValueError(f'Missing verified pins for {kind}.')
         if kind in BOARD_CONFIG or entry.get('category') == 'boards':
             if kind != board:
                 raise ValueError('Placed board conflicts with selected board.')
             board_aliases.add(part['id'])
             continue
         properties = part.get('properties', {})
+        for descriptor in entry.get('properties', []):
+            name = descriptor['name']
+            value = properties.get(name)
+            if descriptor.get('type') == 'number' and isinstance(value, str):
+                try:
+                    properties[name] = float(value)
+                except ValueError:
+                    raise ValueError(f'Invalid numeric property {part["id"]}.{name}.') from None
+                adaptations.append(f'Normalized {part["id"]}.{name} from numeric text; value is unchanged.')
         if kind == 'led' and 'pin' in properties:
             properties.pop('pin')
             adaptations.append(f'Removed {part["id"]}.pin display metadata; explicit wires determine connectivity.')
@@ -124,7 +139,67 @@ def normalize_template(example, catalog, library_free=True):
                                  'color': wire.get('color', '#22c55e')})
     return {'id': example['id'], 'title': example['title'], 'description': example['description'],
             'category': example['category'], 'difficulty': example['difficulty'], 'board': board,
-            'parts': parts, 'wires': normalized_wires, 'source': source, 'adaptations': adaptations}
+            'parts': parts, 'wires': normalized_wires, 'source': source,
+            'libraries': copy.deepcopy(example.get('libraries', [])), 'adaptations': adaptations}
+
+
+def example_capabilities(example, catalog):
+    boards = example_boards(example, catalog)
+    blockers = []
+    normalized = None
+    error = None
+    try:
+        normalized = normalize_template(example, catalog, library_free=False)
+    except (ValueError, KeyError, TypeError, HTTPException) as exc:
+        error = str(exc.detail) if isinstance(exc, HTTPException) else str(exc)
+        blockers.append({'category': 'canonical_validation_gap', 'detail': error})
+    language = example.get('languageMode', 'arduino')
+    if language != 'arduino':
+        blockers.append({'category': 'unsupported_language', 'detail': language})
+    if any(board not in BOARD_CONFIG for board in boards):
+        blockers.append({'category': 'unsupported_board', 'detail': boards})
+    if len(example.get('files', [])) > 1:
+        blockers.append({'category': 'multi_file', 'detail': 'The service accepts one Arduino sketch.'})
+    sources = ([file.get('content', '') for file in example.get('files', [])]
+               or [board.get('code', '') for board in example.get('boards', []) if 'code' in board]
+               or [example.get('code', '')])
+    combined = '\n'.join(sources)
+    headers = sorted(set(re.findall(r'^\s*#\s*include\s*[<\"]([^>\"\n]+)', combined, re.MULTILINE)))
+    scopes = []
+    if normalized:
+        board = normalized['board']
+        config = BOARD_CONFIG[board]
+        if config['simulation'] != 'browser':
+            blockers.append({'category': 'runtime_unavailable', 'detail': board})
+        # These runtime paths implement digital continuity, not analog passive physics.
+        continuity = {'led', 'resistor', 'pushbutton', 'pushbutton-6mm'}
+        for part in normalized['parts']:
+            entry = catalog.components[part['type']]
+            supported = (config['simulation'] == 'browser' and
+                         (part['type'] in continuity or board in entry.get('simulation_boards', [])))
+            scopes.append({'id': part['id'], 'type': part['type'], 'supported': supported,
+                           'scope': entry.get('simulation_scope', 'Digital continuity only.' if part['type'] in continuity else 'No model for the selected board.')})
+            if not supported:
+                blockers.append({'category': 'component_runtime_unavailable',
+                                 'detail': f'{part["id"]}:{part["type"]} on {board}'})
+        combined = normalized['source']
+        if re.search(r'\b(?:WiFi|WIFI|Bluetooth|BLEDevice|Blynk|HTTPClient|requests|network|socket|MQTT|mqtt)\b', combined):
+            blockers.append({'category': 'network_or_radio_requirement',
+                             'detail': 'Network/radio behavior is not supported by this browser scope.'})
+        headers = sorted(set(re.findall(r'^\s*#\s*include\s*[<\"]([^>\"\n]+)', combined, re.MULTILINE)))
+    dependencies = {'declared_libraries': copy.deepcopy(example.get('libraries', [])),
+                    'include_headers': headers}
+    ready = normalized is not None and not blockers
+    external = [header for header in headers if header not in ('Arduino.h', 'Wire.h', 'SPI.h', 'EEPROM.h')]
+    if external or dependencies['declared_libraries']:
+        blockers.append({'category': 'dependency_unverified', 'detail': dependencies})
+    return {'boards': boards, 'board': boards[0] if len(boards) == 1 else None,
+            'language': language, 'available': normalized is not None, 'seedable': normalized is not None,
+            'canonical_supported': normalized is not None, 'fully_supported': ready and not blockers,
+            'simulation_ready': ready, 'simulation_scope': 'ready' if ready else 'partial' if normalized else 'blocked',
+            'part_scopes': scopes, 'blockers': blockers, 'dependencies': dependencies,
+            'normalized_template': normalized, 'normalization_error': error,
+            'compile_verified': False, 'simulation_verified': False}
 
 
 async def create_copy(hardware_service, template):
@@ -152,6 +227,9 @@ class SampleCatalog:
         if len(by_id) != len(examples):
             raise ValueError('Duplicate upstream example identifiers.')
         self.templates = {key: normalize_template(by_id[key], hardware_service.catalog) for key in STARTER_IDS}
+        self.examples = examples
+        self.capabilities = {key: example_capabilities(example, hardware_service.catalog)
+                             for key, example in by_id.items()}
         self.source_hash = hashlib.sha256(raw).hexdigest()
         self.validated = False
         self.validation_lock = asyncio.Lock()
@@ -166,6 +244,18 @@ class SampleCatalog:
                 for template in self.templates.values():
                     project = await create_copy(validator, template)
                     validator.delete_project(project['id'])
+                for example_id, capabilities in self.capabilities.items():
+                    if example_id in self.templates or not capabilities['available']:
+                        continue
+                    try:
+                        project = await create_copy(validator, capabilities['normalized_template'])
+                        validator.delete_project(project['id'])
+                    except (ValueError, KeyError, TypeError, HTTPException) as exc:
+                        detail = str(exc.detail) if isinstance(exc, HTTPException) else str(exc)
+                        capabilities.update(available=False, seedable=False, canonical_supported=False,
+                                            fully_supported=False, simulation_ready=False,
+                                            simulation_scope='blocked', normalized_template=None)
+                        capabilities['blockers'].append({'category': 'canonical_validation_gap', 'detail': detail})
             self.validated = True
 
     def summaries(self):
@@ -234,23 +324,33 @@ def create_router(hwservice=None, examples_path=EXAMPLES_PATH):
 
     @api.get('/all')
     async def all_examples():
-        report = json.loads((ROOT / 'backend/templates/example-analysis.json').read_text(encoding='utf-8'))
-        return {'total': report['total'], 'examples': [{
+        await catalog.validate()
+        return {'total': len(catalog.examples), 'examples': [{
             'id': example['id'], 'title': example['title'], 'category': example['category'],
-            'boards': example['boards'], 'language': example['language'],
-            'available': example['id'] in catalog.templates,
-            'blockers': example.get('blockers', []), 'dependencies': example.get('dependencies', {}),
+            **{key: value for key, value in catalog.capabilities[example['id']].items()
+               if key not in ('normalized_template', 'normalization_error')},
+            'starter': example['id'] in STARTER_IDS,
             'thumbnail': f'/example-thumbnails/{example["id"]}.webp' if (ROOT / 'public/example-thumbnails' / f'{example["id"]}.webp').is_file() else None,
-        } for example in report['examples']]}
+        } for example in catalog.examples]}
 
     @api.post('/{sample_id}/open')
     async def open_sample(sample_id: str):
         await catalog.validate()
         template = catalog.templates.get(sample_id)
+        capabilities = catalog.capabilities.get(sample_id)
+        if capabilities is None:
+            raise HTTPException(404, 'Unknown example project.')
         if template is None:
-            raise HTTPException(404, 'Unknown starter project.')
+            template = capabilities['normalized_template']
+        if template is None:
+            raise HTTPException(409, {'message': 'This example cannot be mapped safely to a canonical project.',
+                                      'blockers': capabilities['blockers']})
         project = await create_copy(hwservice, template)
-        return {**project, 'setup_guidance': setup_guidance(template)}
+        guidance = setup_guidance(template)
+        if template.get('libraries'):
+            guidance += '\n\n**Required libraries:** ' + ', '.join(template['libraries']) + '. Install these before compiling the unchanged source; dependencies are not automatically installed or verified.'
+        guidance += '\n\n**Simulation scope:** ' + ('All listed parts have models for the selected board; compile and run the actual firmware to verify behavior.' if capabilities['simulation_ready'] else 'Partial support only; opening this source does not make unsupported behavior simulatable. ' + json.dumps(capabilities['blockers']))
+        return {**project, 'setup_guidance': guidance}
 
     return api
 

@@ -123,6 +123,38 @@ def test_pico_blink_onboard_adaptation(client):
     assert not summary['provenance']['source_modified']
 
 
+@pytest.mark.parametrize('sample_id,scope', [
+    ('uno-oled-4pin-i2c', 'ready'), ('pico-oled-4pin-i2c', 'partial'),
+    ('uno-dht22', 'ready'), ('rgb-led', 'ready'),
+])
+def test_gallery_examples_open_real_source_in_canonical_runtime(client, hwservice, sample_id, scope):
+    summary = next(item for item in client.get('/api/hardware/samples/all').json()['examples'] if item['id'] == sample_id)
+    assert summary['available']
+    assert summary['simulation_scope'] == scope
+    assert not summary['compile_verified']
+    assert not summary['simulation_verified']
+    response = client.post(f'/api/hardware/samples/{sample_id}/open')
+    assert response.status_code == 200, response.text
+    project = response.json()
+    assert project['firmware']['source'] == example_source(examples()[sample_id])
+    assert project['compiler'] is None
+    assert 'Simulation scope' in project['setup_guidance']
+    if scope == 'partial':
+        assert 'Partial support only' in project['setup_guidance']
+    if examples()[sample_id].get('libraries'):
+        for library in examples()[sample_id]['libraries']:
+            assert library in project['setup_guidance']
+    assert len(project['wires']) == len(examples()[sample_id].get('wires', []))
+
+
+def test_gallery_blocked_examples_do_not_create_projects(client, hwservice):
+    gallery = client.get('/api/hardware/samples/all').json()
+    assert gallery['total'] == len(gallery['examples']) == 321
+    assert {item['simulation_scope'] for item in gallery['examples']} == {'ready', 'partial', 'blocked'}
+    assert client.post('/api/hardware/samples/ky-040-rotary-encoder/open').status_code == 409
+    assert hwservice.list_projects()['projects'] == []
+
+
 def test_unknown_and_nonlocal_requests(client, hwservice):
     assert client.post('/api/hardware/samples/unknown/open').status_code == 404
     for headers in ({'Origin': 'https://evil.example'}, {'Host': 'evil.example'}):

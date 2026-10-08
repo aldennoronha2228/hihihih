@@ -112,9 +112,12 @@ def test_reference_uses_actual_board_code_when_top_level_code_is_empty(actual_ex
     assert reference['source'] == raw['boards'][0]['code']
     assert reference['source_origin'] == 'boards[0].code'
     assert reference['board_sources'][0]['source'] == reference['source']
-    assert reference['normalized_template'] is None
-    assert reference['normalization_error']
-    assert not reference['canonical_supported']
+    assert reference['normalized_template']['source'] == raw['boards'][0]['code']
+    assert reference['normalization_error'] is None
+    assert reference['canonical_supported']
+    assert reference['seedable']
+    assert reference['simulation_ready']
+    assert not reference['fully_supported']
     assert reference['dependencies']['declared_libraries'] == raw['libraries']
 
 
@@ -137,6 +140,44 @@ def test_unsupported_references_still_return_real_source_and_limitations(example
         assert reference['source_origin'] == 'files[0].content'
     else:
         assert reference['source'] == example_source(raw)
+
+
+@pytest.mark.parametrize('example_id,ready', [
+    ('uno-oled-4pin-i2c', True), ('pico-oled-4pin-i2c', False),
+    ('uno-dht22', True), ('rgb-led', True), ('uno-potentiometer', True),
+])
+def test_simulation_scope_uses_actual_board_and_preserves_dependencies(example_id, ready, actual_examples):
+    reference = get_example_reference(example_id)
+    assert reference['seedable']
+    assert reference['simulation_ready'] is ready
+    assert reference['simulation_scope'] == ('ready' if ready else 'partial')
+    template = reference['normalized_template']
+    assert template['source'] == example_source(actual_examples[example_id])
+    assert template['libraries'] == actual_examples[example_id].get('libraries', [])
+
+
+def test_truncated_libraries_never_return_an_incomplete_seed(monkeypatch, actual_examples):
+    raw = copy.deepcopy(actual_examples['button-led'])
+    raw['libraries'] = [f'Library {index}' for index in range(MAX_FILES + 1)]
+    monkeypatch.setattr(example_requirements, '_load_examples', lambda: (
+        {'source': 'actual-export', 'examples': [{'id': raw['id']}]}, {raw['id']: raw}))
+    reference = get_example_reference(raw['id'])
+    assert reference['truncation']['libraries']
+    assert reference['normalized_template'] is None
+    assert not reference['seedable']
+    assert not reference['simulation_ready']
+
+
+def test_catalog_board_support_is_recomputed_not_read_from_snapshot():
+    catalog = copy.deepcopy(service.catalog)
+    catalog.components['ssd1306-i2c-4pin']['simulation_boards'] = ['pi-pico']
+    assert not get_example_reference('uno-oled-4pin-i2c', catalog)['simulation_ready']
+    assert get_example_reference('pico-oled-4pin-i2c', catalog)['simulation_ready']
+    catalog.components['ssd1306-i2c-4pin']['pins'] = []
+    reference = get_example_reference('pico-oled-4pin-i2c', catalog)
+    assert not reference['seedable']
+    assert not reference['simulation_ready']
+    assert reference['normalized_template'] is None
 
 
 def test_all_321_actual_references_are_accessible_and_bounded(actual_examples, monkeypatch):

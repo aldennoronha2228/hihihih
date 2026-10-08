@@ -115,7 +115,7 @@ def test_board_aliases_are_canonicalized(tmp_path, alias, canonical):
         assert alias in service.catalog.components[canonical]['aliases']
 
 
-@pytest.mark.parametrize('board', ['esp32-devkit-v1', 'esp32-devkit-c-v4', 'esp32-s3', 'esp32-c3',
+@pytest.mark.parametrize('board', ['esp32-devkit-v1', 'esp32-devkit-c-v4',
                                   'raspberry-pi-3', 'raspberry-pi-4', 'raspberry-pi-5'])
 def test_unavailable_boards_never_dispatch_browser_runtime(tmp_path, board):
     class RejectRuntime:
@@ -217,8 +217,8 @@ def test_esp32_compiler_full_flash_contract(tmp_path, monkeypatch, board, mode):
         assert result['artifact'] is None
         assert 'merged.bin' in result['errors'][0]
         return
-    assert result['status'] == 'compilation_complete'
-    assert result['simulation'] == 'unavailable'
+    assert result['status'] == ('simulation_ready' if board in ('esp32-c3', 'esp32-s3') else 'compilation_complete')
+    assert result['simulation'] == ('browser' if board in ('esp32-c3', 'esp32-s3') else 'unavailable')
     artifact = result['artifact']
     assert artifact['format'] == 'bin'
     assert artifact['image_kind'] == 'merged-flash'

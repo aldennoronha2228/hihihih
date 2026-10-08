@@ -1,15 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactNode } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft, Check, ChevronDown, ChevronRight, CircuitBoard, Code2, Cpu, FolderOpen, LoaderCircle, Maximize, Minus, Play, Plus, RefreshCw, Save, Search, Square, Terminal, Trash2, Undo2, Waves, Wrench, X, Zap } from 'lucide-react'
+import { Wifi, Copy, RotateCw, Cable, ArrowLeft, Check, ChevronDown, ChevronRight, CircuitBoard, Code2, Cpu, FolderOpen, LoaderCircle, Maximize, Minus, Play, Plus, RefreshCw, Save, Search, Square, Terminal, Trash2, Undo2, Waves, Wrench, X, Zap } from 'lucide-react'
 import { ComponentRegistry } from '../../vendor/velxio/frontend/src/services/ComponentRegistry'
 import { artifactIsCurrent, catalogPins, catalogType, hardwareApi, HardwareApiError, isHardwareProject } from '../lib/hardware'
 import type { CatalogComponent, CompilerResult, Firmware, HardwareCommand, HardwareComponent, HardwarePin, HardwareProject, WireEndpoint } from '../lib/hardware'
 import { HardwareRuntime } from '../hardware/runtime'
 import type { RuntimeResults } from '../hardware/runtime'
 import { HardwarePart } from '../hardware/part'
+import { roundedWirePath } from '../hardware/wire-path'
 import './hardware-workspace.css'
 import { WorkspaceLoading } from './ui/workspace-loading'
+import { BoardFlashDialog } from './ui/board-flash-dialog'
+import { EspNetworkDialog } from './ui/esp-network-dialog'
 
 type WorkspaceTab = 'circuit' | 'agent' | 'parts'
 type DockTab = 'compiler' | 'serial' | 'results' | 'tools'
@@ -103,7 +106,12 @@ export function HardwareWorkspace({ chatSlot, children, onProjectChange, schemat
   const sketchDialog = useRef<HTMLDialogElement>(null)
   const scopeDialog = useRef<HTMLDialogElement>(null)
   const [connection, setConnection] = useState('Disconnected')
+  const [flashOpen, setFlashOpen] = useState(false)
+  const [networkOpen, setNetworkOpen] = useState(false)
+  const [wireDetails, setWireDetails] = useState<{ id: string; x: number; y: number } | null>(null)
   const [runtime, setRuntime] = useState<HardwareRuntime | null>(null)
+  const runtimeRef = useRef<HardwareRuntime | null>(null)
+  runtimeRef.current = runtime
   useEffect(() => { onRuntimeChange?.(runtime); return () => onRuntimeChange?.(null) }, [runtime, onRuntimeChange])
   const [results, setResults] = useState<RuntimeResults | null>(null)
   useEffect(() => { onResultsChange?.(results) }, [results, onResultsChange])
@@ -119,6 +127,9 @@ export function HardwareWorkspace({ chatSlot, children, onProjectChange, schemat
   const [properties, setProperties] = useState('{}')
   const [position, setPosition] = useState({ x: 0, y: 0, rotation: 0 })
   const [zoom, setZoom] = useState(1)
+  const [dragPreview, setDragPreview] = useState<{ id: string; x: number; y: number } | null>(null)
+  const dragCleanup = useRef<(() => void) | null>(null)
+  useEffect(() => () => { dragCleanup.current?.() }, [projectId])
   const [session, setSession] = useState(0)
   const [layout, setLayout] = useState<WorkspaceLayout>(readLayout)
   const [resizing, setResizing] = useState<'sidebar' | 'agent' | 'dock' | null>(null)
@@ -156,6 +167,7 @@ export function HardwareWorkspace({ chatSlot, children, onProjectChange, schemat
     const previous = projectRef.current
     if (previous?.id === next.id && (previous.revision > next.revision || (!forceSource && JSON.stringify(previous) === JSON.stringify(next)))) return
     if (!next.runtime_token && previous?.id === next.id) next = { ...next, runtime_token: previous.runtime_token }
+    runtimeRef.current?.updateProject(next)
     projectRef.current = next
     setProject(next)
     setCompiler(next.compiler)
@@ -181,8 +193,10 @@ export function HardwareWorkspace({ chatSlot, children, onProjectChange, schemat
     }
     void hardwareApi.getProject(projectId, { signal: controller.signal }).then(value => {
       if (active) acceptProject(value, true)
-    }).catch(error => { if (active) setLoadError(error.message) }).finally(() => { if (active) setLoading(false) })
-    return () => { active = false; controller.abort() }
+    }).catch(error => { if (active) setLoadError(error.message) }).finally(() => {
+      finishTimer = setTimeout(() => { if (active) setLoading(false) }, Math.max(0, 1400 - (performance.now() - loadingStarted)))
+    })
+    return () => { active = false; controller.abort(); clearTimeout(finishTimer) }
   }, [projectId, acceptProject, loadAttempt])
 
   useEffect(() => { onProjectChange?.(project) }, [project, onProjectChange])
@@ -276,6 +290,17 @@ export function HardwareWorkspace({ chatSlot, children, onProjectChange, schemat
   const dirty = !!project && source !== project.firmware.source
   const mutationDisabled = !!busy || !!results?.running || dirty
   const selectedPart = project?.components.find(part => part.id === selected)
+  const selectedElement = useRef<HTMLDivElement | null>(null)
+  const [selectedSize, setSelectedSize] = useState({ width: 0, height: 0 })
+  useEffect(() => {
+    const element = selectedElement.current
+    if (!element) return
+    const measure = () => setSelectedSize({ width: element.offsetWidth, height: element.offsetHeight })
+    const observer = new ResizeObserver(measure)
+    observer.observe(element)
+    measure()
+    return () => observer.disconnect()
+  }, [selectedPart?.id, selectedPart?.type, loading, activeView])
   useEffect(() => {
     if (!selectedPart) return
     setProperties(JSON.stringify(selectedPart.properties, null, 2))
@@ -286,15 +311,85 @@ export function HardwareWorkspace({ chatSlot, children, onProjectChange, schemat
     setPins(previous => JSON.stringify(previous[id]) === JSON.stringify(info) ? previous : { ...previous, [id]: info })
   }, [])
   const catalogFor = (part: HardwareComponent) => knownCatalog.find(item => catalogType(item) === part.type)
+  const displayedPart = (part: HardwareComponent) => dragPreview?.id === part.id ? { ...part, x: dragPreview.x, y: dragPreview.y } : part
+  const selectedIsBoard = selectedPart?.id === 'board' || (selectedPart && catalogFor(selectedPart)?.category === 'boards')
+  const selectedDisplay = selectedPart && displayedPart(selectedPart)
+  const selectedRadians = (selectedDisplay?.rotation ?? 0) * Math.PI / 180
+  const selectedCorners = [{ x: 0, y: 0 }, { x: selectedSize.width, y: 0 }, { x: 0, y: selectedSize.height }, { x: selectedSize.width, y: selectedSize.height }].map(point => ({
+    x: point.x * Math.cos(selectedRadians) - point.y * Math.sin(selectedRadians),
+    y: point.x * Math.sin(selectedRadians) + point.y * Math.cos(selectedRadians),
+  }))
+  const selectedActionsPosition = selectedDisplay && {
+    left: selectedDisplay.x + (Math.min(...selectedCorners.map(point => point.x)) + Math.max(...selectedCorners.map(point => point.x))) / 2,
+    top: selectedDisplay.y + Math.max(...selectedCorners.map(point => point.y)) + 12,
+  }
+  useEffect(() => {
+    if (mutationDisabled || activeView !== 'circuit') dragCleanup.current?.()
+  }, [mutationDisabled, activeView])
+  const startPartDrag = (part: HardwareComponent, event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (mutationDisabled || busyRef.current || event.button !== 0 || dragCleanup.current) return
+    event.preventDefault()
+    event.stopPropagation()
+    setSelected(part.id)
+    setWireDetails(null)
+    const target = event.currentTarget
+    const pointerId = event.pointerId
+    const viewport = canvasViewport.current
+    const startX = event.clientX; const startY = event.clientY
+    const scrollLeft = viewport?.scrollLeft ?? 0; const scrollTop = viewport?.scrollTop ?? 0
+    target.setPointerCapture(pointerId)
+    const coordinates = (pointer: PointerEvent) => ({
+      x: Math.max(0, part.x + (pointer.clientX - startX + (viewport?.scrollLeft ?? 0) - scrollLeft) / zoom),
+      y: Math.max(30, part.y + (pointer.clientY - startY + (viewport?.scrollTop ?? 0) - scrollTop) / zoom),
+    })
+    const cleanup = () => {
+      target.removeEventListener('pointermove', move)
+      target.removeEventListener('pointerup', up)
+      target.removeEventListener('pointercancel', cancel)
+      target.removeEventListener('lostpointercapture', cancel)
+      if (target.hasPointerCapture(pointerId)) target.releasePointerCapture(pointerId)
+      dragCleanup.current = null
+    }
+    const cancel = () => { cleanup(); setDragPreview(null) }
+    const move = (pointer: PointerEvent) => {
+      if (pointer.pointerId !== pointerId) return
+      setDragPreview({ id: part.id, ...coordinates(pointer) })
+    }
+    const up = (pointer: PointerEvent) => {
+      if (pointer.pointerId !== pointerId) return
+      cleanup()
+      const point = coordinates(pointer)
+      const x = Math.round(point.x); const y = Math.round(point.y)
+      if ((x === part.x && y === part.y) || busyRef.current || projectRef.current?.id !== projectId) { setDragPreview(null); return }
+      setDragPreview({ id: part.id, x, y })
+      void perform('Moving component', async () => {
+        try { await command('modify_component', { id: part.id, x, y }, true) }
+        finally { setDragPreview(null) }
+      })
+    }
+    dragCleanup.current = cancel
+    target.addEventListener('pointermove', move)
+    target.addEventListener('pointerup', up)
+    target.addEventListener('pointercancel', cancel)
+    target.addEventListener('lostpointercapture', cancel)
+  }
   const endpointOptions = project?.components.flatMap(part => catalogPins(catalogFor(part)).map(pin => ({ value: JSON.stringify({ component: part.id, pin }), label: `${part.id} · ${pin}` }))) ?? []
   const pinPosition = (endpoint: WireEndpoint) => {
-    const part = project?.components.find(part => part.id === endpoint.component)
+    const canonical = project?.components.find(part => part.id === endpoint.component)
+    const part = canonical && displayedPart(canonical)
     const info = pins[endpoint.component] ?? []
     const aliases = [endpoint.pin, endpoint.pin.replace(/^D(?=\d)/, ''), endpoint.pin === 'GND' ? 'GND.1' : endpoint.pin, endpoint.pin === 'TX' ? '1' : endpoint.pin === 'RX' ? '0' : endpoint.pin]
     const pin = aliases.map(name => info.find(pin => pin.name === name)).find(Boolean)
     if (!part || pin?.x === undefined || pin.y === undefined) return null
     const radians = part.rotation * Math.PI / 180
     return { x: part.x + pin.x * Math.cos(radians) - pin.y * Math.sin(radians), y: part.y + pin.x * Math.sin(radians) + pin.y * Math.cos(radians) }
+  }
+  const revealPin = (endpoint: WireEndpoint) => {
+    const point = pinPosition(endpoint)
+    const viewport = canvasViewport.current
+    if (!point || !viewport) return
+    setSelected(endpoint.component)
+    viewport.scrollTo({left:Math.max(0,point.x*zoom-viewport.clientWidth/2),top:Math.max(0,point.y*zoom-viewport.clientHeight/2),behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'})
   }
   const unresolvedWires = project?.wires.filter(wire => !pinPosition(wire.from) || !pinPosition(wire.to)) ?? []
   const choosePin = (endpoint: WireEndpoint) => {
@@ -361,10 +456,10 @@ export function HardwareWorkspace({ chatSlot, children, onProjectChange, schemat
         <aside className="hw-sidebar hw-parts-panel">
           <div className="hw-panel-heading"><Cpu size={15} /> Components <span>{project.components.length}</span></div>
           <label className="hw-search"><Search size={14} /><input aria-label="Search components" placeholder="Search catalog…" value={query} onChange={event => setQuery(event.target.value)} /></label>
-          <div className="hw-catalog">{categories.map(category => <details className="hw-category" key={category} open><summary>{categoryNames[category] ?? category}<span>{visibleCatalog.filter(item => (item.category ?? 'other') === category).length}</span><ChevronDown size={12} /></summary><div className="hw-category-grid">{visibleCatalog.filter(item => (item.category ?? 'other') === category).map(item => <button key={catalogType(item)} className="hw-catalog-card" aria-label={`Add ${item.name} ${item.category ?? 'component'}`} title={item.description ?? item.name} disabled={mutationDisabled || (item.category === 'boards' && item.supported_board === false) || catalogType(item) === project.board} onClick={() => void perform('Adding component', async () => { const count = projectRef.current?.components.length ?? 0; await command('add_component', { type: catalogType(item), x: 380 + count % 3 * 110, y: 100 + Math.floor(count / 3) * 110 }, true) })}><CatalogThumbnail type={catalogType(item)} name={item.name} thumbnail={item.thumbnail} /><strong>{item.name}</strong><small>{item.category === 'boards' ? item.simulation === 'browser' ? 'Browser simulation' : item.compile ? 'Compile · emulator setup needed' : 'Placement · native runtime needed' : !catalogPins(item).length ? 'Placement only' : `${catalogPins(item).length} verified pins`}</small><Plus className="hw-card-add" size={12} /></button>)}</div></details>)}{!visibleCatalog.length && <p className="hw-catalog-empty">No components match your search.</p>}</div>
+          <div className="hw-catalog">{categories.map(category => <details className="hw-category" key={category} open><summary>{categoryNames[category] ?? category}<span>{visibleCatalog.filter(item => (item.category ?? 'other') === category).length}</span><ChevronDown size={12} /></summary><div className="hw-category-grid">{visibleCatalog.filter(item => (item.category ?? 'other') === category).map(item => <button key={catalogType(item)} className="hw-catalog-card" aria-label={`Add ${item.name} ${item.category ?? 'component'}`} title={item.description ?? item.name} disabled={mutationDisabled || (item.category === 'boards' && item.supported_board === false) || catalogType(item) === project.board} onClick={() => void perform('Adding component', async () => { const count = projectRef.current?.components.length ?? 0; await command('add_component', { type: catalogType(item), x: 380 + count % 3 * 110, y: 100 + Math.floor(count / 3) * 110 }, true) })}><CatalogThumbnail type={catalogType(item)} name={item.name} thumbnail={item.thumbnail} /><strong>{item.name}</strong><small>{item.category === 'boards' ? item.simulation === 'browser' ? 'Browser simulation' : item.compile ? 'Compile · emulator setup needed' : 'Placement · native runtime needed' : item.simulation_boards?.includes(project.board) ? 'Velxio peripheral simulation' : !catalogPins(item).length ? 'Placement only' : `${catalogPins(item).length} verified pins`}</small><Plus className="hw-card-add" size={12} /></button>)}</div></details>)}{!visibleCatalog.length && <p className="hw-catalog-empty">No components match your search.</p>}</div>
           <div className="hw-panel-heading">In this circuit</div>
           <div className="hw-component-list">{project.components.map(part => <button key={part.id} className={selected === part.id ? 'active' : ''} onClick={() => setSelected(part.id)}><Cpu size={14} /><span>{part.id}<small>{part.type}</small></span></button>)}</div>
-          {selectedPart && <section className="hw-inspector"><div className="hw-panel-heading">Properties <button aria-label={`Remove ${selectedPart.id}`} disabled={mutationDisabled || selectedPart.type === 'arduino-uno'} onClick={() => void perform('Removing component', async () => { await command('remove_component', { id: selectedPart.id }, true); setSelected('') })}><Trash2 size={13} /></button></div>
+          {selectedPart && <section className="hw-inspector"><div className="hw-panel-heading">Properties <button aria-label={`Remove ${selectedPart.id}`} disabled={mutationDisabled || selectedPart.id === 'board'} onClick={() => void perform('Removing component', async () => { await command('remove_component', { id: selectedPart.id }, true); setSelected('') })}><Trash2 size={13} /></button></div>
             <div className="hw-position">{(['x', 'y', 'rotation'] as const).map(key => <label key={key}>{key}<input aria-label={`Component ${key}`} type="number" value={position[key]} onChange={event => setPosition({ ...position, [key]: Number(event.target.value) })} /></label>)}</div>
             <textarea aria-label="Component properties JSON" value={properties} onChange={event => setProperties(event.target.value)} rows={4} spellCheck={false} />
             <button disabled={mutationDisabled} onClick={() => void perform('Updating component', async () => { const value: unknown = JSON.parse(properties); if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Properties must be a JSON object.'); await command('modify_component', { id: selectedPart.id, ...position, properties: value }, true) })}><Check size={14} /> Apply properties</button>
@@ -396,25 +491,20 @@ export function HardwareWorkspace({ chatSlot, children, onProjectChange, schemat
             {!project.components.length && <p className="p-4 text-center text-xs text-neutral-400">Your canvas is empty. Describe your project and answer the questions; the agent will select and place the board after confirmation.</p>}
             {unresolvedWires.length > 0 && <p className="hw-notice" role="status">{unresolvedWires.length} connection(s) are saved but their component pin layout is not ready. {unresolvedWires.map(wire => `${wire.from.component}.${wire.from.pin} → ${wire.to.component}.${wire.to.pin}`).join('; ')}</p>}
             <div className="hw-canvas-viewport" ref={canvasViewport} aria-label="Circuit canvas"><div className="hw-canvas" style={{ width: 1000 * zoom, height: 650 * zoom }}><div className="hw-canvas-world" style={{ transform: `scale(${zoom})` }}>
-              <svg className="hw-wires" width="1000" height="650" aria-label="Circuit wires">{project.wires.map(wire => { const start = pinPosition(wire.from); const end = pinPosition(wire.to); return start && end ? <path key={wire.id} d={`M ${start.x} ${start.y} H ${(start.x + end.x) / 2} V ${end.y} H ${end.x}`} stroke={wire.color} fill="none" strokeWidth="3" /> : null })}</svg>
-              {project.components.map(part => <div key={part.id} className={`hw-canvas-part ${selected === part.id ? 'selected' : ''}`} style={{ left: part.x, top: part.y, transform: `rotate(${part.rotation}deg)` }} onClick={() => setSelected(part.id)}>
-                <button className="hw-part-handle" aria-label={`Select ${part.id}`} onPointerDown={event => {
-                  if (mutationDisabled) return
-                  const target = event.currentTarget
-                  target.setPointerCapture(event.pointerId)
-                  const startX = event.clientX; const startY = event.clientY
-                  const move = (moveEvent: PointerEvent) => { const wrapper = target.parentElement; if (wrapper) { wrapper.style.left = `${Math.max(0, part.x + (moveEvent.clientX - startX) / zoom)}px`; wrapper.style.top = `${Math.max(30, part.y + (moveEvent.clientY - startY) / zoom)}px` } }
-                  const up = (upEvent: PointerEvent) => {
-                    target.removeEventListener('pointermove', move); target.removeEventListener('pointerup', up); target.removeEventListener('pointercancel', cancel)
-                    const x = Math.round(Math.max(0, part.x + (upEvent.clientX - startX) / zoom)); const y = Math.round(Math.max(30, part.y + (upEvent.clientY - startY) / zoom))
-                    if (x !== part.x || y !== part.y) void perform('Moving component', async () => { try { await command('modify_component', { id: part.id, x, y }, true) } finally { const wrapper = target.parentElement; const canonical = projectRef.current?.components.find(item => item.id === part.id); if (wrapper && canonical) { wrapper.style.left = `${canonical.x}px`; wrapper.style.top = `${canonical.y}px` } } })
-                  }
-                  const cancel = () => { target.removeEventListener('pointermove', move); target.removeEventListener('pointerup', up); target.removeEventListener('pointercancel', cancel); if (target.parentElement) { target.parentElement.style.left = `${part.x}px`; target.parentElement.style.top = `${part.y}px` } }
-                  target.addEventListener('pointermove', move); target.addEventListener('pointerup', up); target.addEventListener('pointercancel', cancel)
-                }}>{part.id}</button>
+              <svg className="hw-wires" width="1000" height="650" aria-label="Circuit wires">{project.wires.map(wire => { const start = pinPosition(wire.from); const end = pinPosition(wire.to); if (!start || !end) return null; const path = roundedWirePath(start, end); return <g key={wire.id}><path d={path} stroke={wire.color} fill="none" strokeWidth={wireDetails?.id === wire.id ? 5 : 3} pointerEvents="none"/><path className="hw-wire-hit" d={path} stroke="transparent" fill="none" strokeWidth="14" tabIndex={0} role="button" aria-label={`Inspect wire ${wire.from.component}.${wire.from.pin} to ${wire.to.component}.${wire.to.pin}`} onClick={event => { event.stopPropagation(); setWireDetails({id:wire.id,x:(start.x+end.x)/2,y:(start.y+end.y)/2}) }} onKeyDown={event => { if(event.key==='Enter'||event.key===' '){event.preventDefault();setWireDetails({id:wire.id,x:(start.x+end.x)/2,y:(start.y+end.y)/2})} }}/>{wireDetails?.id === wire.id && [wire.from,wire.to].map((endpoint,index) => {const point=index===0?start:end;return <g key={index} pointerEvents="none"><circle cx={point.x} cy={point.y} r="8" fill="#0e1722" stroke="#c0e2ff" strokeWidth="2"/><circle cx={point.x} cy={point.y} r="3" fill={wire.color}/><rect x={point.x+12} y={point.y-20} width={Math.max(90,`${endpoint.component} · ${endpoint.pin}`.length*7)} height="22" rx="5" fill="#1c2d40" stroke="#7899bc"/><text x={point.x+18} y={point.y-5} fill="#e7f3ff" fontSize="11">{endpoint.component} · {endpoint.pin}</text></g>})}</g> })}</svg>
+              {wireDetails && project.wires.some(wire => wire.id === wireDetails.id) && <div className="hw-wire-details" role="dialog" aria-label="Wire connection details" style={{left:Math.min(730,Math.max(10,wireDetails.x)),top:Math.min(490,Math.max(35,wireDetails.y))}}><header><strong>Wire connection</strong><button aria-label="Close wire details" onClick={() => setWireDetails(null)}><X size={14}/></button></header>{project.wires.filter(wire=>wire.id===wireDetails.id).map(wire=><div key={wire.id}><p><small>From</small><strong>{wire.from.component}</strong><span>Pin {wire.from.pin}</span><button onClick={() => revealPin(wire.from)} aria-label={`Show ${wire.from.component} pin ${wire.from.pin}`}>Show pin</button></p><p><small>To</small><strong>{wire.to.component}</strong><span>Pin {wire.to.pin}</span><button onClick={() => revealPin(wire.to)} aria-label={`Show ${wire.to.component} pin ${wire.to.pin}`}>Show pin</button></p><small>{wire.id}</small></div>)}</div>}
+              {project.components.map(part => <div key={part.id} ref={selected === part.id ? selectedElement : undefined} className={`hw-canvas-part ${selected === part.id ? 'selected' : ''}${dragPreview?.id === part.id ? ' is-dragging' : ''}`} style={{ left: displayedPart(part).x, top: displayedPart(part).y, transform: `rotate(${part.rotation}deg)` }} onClick={() => setSelected(part.id)}>
+                <button className="hw-part-handle" aria-label={`Select ${part.id}`} onPointerDown={event => startPartDrag(part, event)}>{part.id}</button>
                 <HardwarePart part={part} runtime={runtime} pinsChanged={pinsChanged} />
                 {(pins[part.id] ?? []).filter(pin => catalogPins(catalogFor(part)).includes(pin.name) && pin.x !== undefined && pin.y !== undefined).map(pin => <button key={pin.name} title={`${part.id}.${pin.name}`} aria-label={`Connect ${part.id} pin ${pin.name}`} className={`hw-pin ${wireStart?.component === part.id && wireStart.pin === pin.name ? 'active' : ''}`} style={{ left: pin.x, top: pin.y }} disabled={mutationDisabled} onClick={event => { event.stopPropagation(); choosePin({ component: part.id, pin: pin.name }) }} />)}
               </div>)}
+              {selectedPart && selectedActionsPosition && <div className="hw-part-actions" role="toolbar" aria-label={`Actions for ${selectedPart.id}`} style={selectedActionsPosition}>
+                {selectedPart.id === 'board' && project.board.startsWith('esp32') && <button aria-label="Simulated Wi-Fi settings" onClick={() => setNetworkOpen(true)}><Wifi size={14}/></button>}
+                <button aria-label={`Rotate ${selectedPart.id}`} title="Rotate 90°" disabled={mutationDisabled || !!dragPreview} onClick={() => void perform('Rotating component', async () => { await command('modify_component', { id: selectedPart.id, rotation: (selectedPart.rotation + 90) % 360 }, true) })}><RotateCw size={14} /></button>
+                <button aria-label={`Duplicate ${selectedPart.id}`} title={selectedIsBoard ? 'The backend supports one project board only' : 'Duplicate component'} disabled={mutationDisabled || !!dragPreview || !!selectedIsBoard} onClick={() => void perform('Duplicating component', async () => { const value = await command('add_component', { type: selectedPart.type, x: selectedPart.x + 30, y: selectedPart.y + 30, rotation: selectedPart.rotation, properties: selectedPart.properties }, true); if (isHardwareProject(value)) { const added = value.components.find(part => !project.components.some(previous => previous.id === part.id)); if (added) setSelected(added.id) } })}><Copy size={14} /></button>
+                <button aria-label={`Delete ${selectedPart.id}`} title={selectedPart.id === 'board' ? 'The project board cannot be removed' : 'Delete component'} disabled={mutationDisabled || !!dragPreview || selectedPart.id === 'board'} onClick={() => void perform('Removing component', async () => { await command('remove_component', { id: selectedPart.id }, true); setSelected('') })}><Trash2 size={14} /></button>
+                <button aria-label={`Properties for ${selectedPart.id}`} title="Edit properties" onClick={() => { setTab('parts'); requestAnimationFrame(() => { document.querySelector<HTMLElement>('.hw-inspector')?.scrollIntoView({ block: 'nearest' }); document.querySelector<HTMLTextAreaElement>('.hw-inspector textarea')?.focus({ preventScroll: true }) }) }}><Wrench size={14} /></button>
+              </div>}
             </div></div></div>
             <div className="hw-canvas-hint">{wireStart ? <><Zap size={12} /> Select a second pin to connect <button onClick={() => setWireStart(null)}>Cancel</button></> : <><Zap size={12} /> Drag component labels to move · Click verified pins to wire</>}<span>Uno · 16 MHz</span></div>
           </div>
@@ -426,13 +516,15 @@ export function HardwareWorkspace({ chatSlot, children, onProjectChange, schemat
           <section className="hw-dock" data-open={consoleOpen} style={{ '--hw-dock': `${layout.dock}px` } as CSSProperties}>{consoleOpen && <div className="hw-resizer hw-resizer-row" data-active={resizing === 'dock'} role="separator" aria-orientation="horizontal" aria-label="Resize console height" onPointerDown={startResize('dock')} />}<nav aria-label="Output panels">{(['compiler', 'serial', 'results', 'tools'] as const).map(value => <button key={value} aria-expanded={consoleOpen && dock === value} className={consoleOpen && dock === value ? 'active' : ''} onClick={() => { setDock(value); setConsoleOpen(true) }}>{value === 'serial' ? <Terminal size={13} /> : value === 'compiler' ? <Wrench size={13} /> : value === 'results' ? <Zap size={13} /> : <Cpu size={13} />}{value === 'compiler' ? 'Compiler' : value === 'serial' ? 'Serial monitor' : value === 'results' ? 'Results' : 'Tools'}</button>)}<span className="hw-dock-status">{busy && <LoaderCircle size={12} className="hw-spin" />}{busy || compiler?.status?.replaceAll('_', ' ') || 'Not compiled'}</span><button className="hw-console-collapse" aria-label={consoleOpen ? 'Collapse console' : 'Expand console'} aria-expanded={consoleOpen} onClick={() => setConsoleOpen(!consoleOpen)}><ChevronDown size={14} /></button></nav>
             {consoleOpen && dock === 'compiler' && <div className="hw-dock-body"><div className="hw-output-actions"><button disabled={!!busy} onClick={() => void perform('Reading compiler errors', async () => { setCompiler(await command('read_compiler_errors') as CompilerResult) })}><RefreshCw size={12} /> Read diagnostics</button>{compiler?.artifact?.url && <a href={compiler.artifact.url} download>Download HEX</a>}</div><pre>{compiler ? [compiler.stdout, compiler.stderr, ...(compiler.errors ?? []).map(value => typeof value === 'string' ? value : JSON.stringify(value))].filter(Boolean).join('\n') || compiler.status : 'Ready when you are. Compile your sketch to create real Arduino firmware.\nCompilation does not start the simulator.'}</pre></div>}
             {consoleOpen && dock === 'serial' && <div className="hw-dock-body"><pre aria-label="Serial output">{results?.serial || 'No serial output yet. Your sketch must call Serial.begin() and Serial.print().'}</pre><form className="hw-serial-send" onSubmit={event => { event.preventDefault(); try { runtime?.sendSerial(serialInput + '\n'); setSerialInput('') } catch (error) { setError((error as Error).message) } }}><input aria-label="Serial input" value={serialInput} placeholder="Send to UART…" onChange={event => setSerialInput(event.target.value)} /><button disabled={!results?.running || !serialInput}>Send</button></form></div>}
-            {consoleOpen && dock === 'results' && <div className="hw-dock-body"><div className="hw-output-actions"><button disabled={!!busy || connection !== 'Connected'} onClick={() => void perform('Reading simulation results', async () => { const value = await command('read_simulation_results') as { result: RuntimeResults }; if (value.result) setResults(value.result) })}><RefreshCw size={12} /> Read runtime</button><span>{results?.cycles.toLocaleString() ?? '0'} cycles · {(results?.simulated_ms ?? 0).toFixed(1)} ms simulated</span></div><div className="hw-pin-results">{Object.entries(results?.pins ?? {}).map(([pin, value]) => <span key={pin} data-level={value.level === true ? 'high' : value.level === false ? 'low' : 'floating'}>{pin}<b>{value.level === null ? '—' : value.level ? 'HIGH' : 'LOW'}</b></span>)}</div><p className="hw-runtime-limit">Real Velxio AVR CPU / UART / GPIO. LED continuity and rail-connected buttons are supported; other parts are placement-only. No analog-current measurements are claimed.</p></div>}
+            {consoleOpen && dock === 'results' && <div className="hw-dock-body"><div className="hw-output-actions"><button disabled={!!busy || connection !== 'Connected'} onClick={() => void perform('Reading simulation results', async () => { const value = await command('read_simulation_results') as { result: RuntimeResults }; if (value.result) setResults(value.result) })}><RefreshCw size={12} /> Read runtime</button><span>{results?.cycles.toLocaleString() ?? '0'} cycles · {(results?.simulated_ms ?? 0).toFixed(1)} ms simulated</span></div><div className="hw-pin-results">{Object.entries(results?.pins ?? {}).map(([pin, value]) => <span key={pin} data-level={value.level === true ? 'high' : value.level === false ? 'low' : 'floating'}>{pin}<b>{value.level === null ? '—' : value.level ? 'HIGH' : 'LOW'}</b></span>)}</div><p className="hw-runtime-limit">{results?.limitations.join(' ') ?? 'Real Velxio board CPU / UART / GPIO. Runtime-specific peripheral support is reported after simulation starts. No analog-current measurements are claimed.'}</p>{results?.support_warnings?.map(warning => <p className="hw-runtime-limit" key={warning}>{warning}</p>)}</div>}
             {consoleOpen && dock === 'tools' && <div className="hw-dock-body"><div className="hw-manual-tools"><button disabled={!!busy} onClick={() => void perform('Reading project', async () => { const value = await command('read_project'); setToolOutput(JSON.stringify(value, null, 2)) })}>Read project</button><button disabled={!!busy} onClick={() => void perform('Reading firmware', async () => { const value = await command('read_firmware') as Firmware; setToolOutput(JSON.stringify(value, null, 2)) })}>Read firmware</button><button disabled={!!busy || !!results?.running} onClick={() => void perform('Generating firmware', async () => { const current = projectRef.current!; const next = await hardwareApi.command<HardwareProject>(current, 'generate_firmware', { source: sourceRef.current, expected_revision: dirty ? draftRevision.current ?? current.revision : current.revision }); acceptProject(next, true); setNotice('Current editor source stored through generate_firmware.') })}>Generate from editor</button><button disabled={!!busy} onClick={() => void perform('Searching components', async () => { const value = await command('search_components', { query, limit: 50 }); setToolOutput(JSON.stringify(value, null, 2)) })}>Search catalog</button></div><form className="hw-calculator" onSubmit={event => { event.preventDefault(); void perform('Calculating', async () => { const value = await command('calculator', { expression }); setToolOutput(JSON.stringify(value, null, 2)) }) }}><input aria-label="Calculator expression" value={expression} onChange={event => setExpression(event.target.value)} placeholder="(5 - 2) / 0.02" /><button disabled={!!busy || !expression}>Calculate</button></form><pre aria-label="Tool result">{toolOutput || 'All manual tools use the same canonical backend service as the agent.'}</pre></div>}
           </section>
         </section>
         <aside className="hw-agent-panel">{!agent && <div className="hw-panel-heading"><Zap size={15} /> WireUp agent</div>}{agent ?? <div className="hw-agent-empty"><div className="hw-agent-symbol"><Zap size={24} /></div><h2>A collaborator for your circuit.</h2><p>Ask the project agent to add parts, write firmware, and inspect the real compiler and simulator.</p><div className="hw-agent-context"><Cpu size={14} /> {project.name}<small>Canonical project · revision {project.revision}</small></div><p className="hw-muted">The agent panel is supplied by the host application. Manual tools remain available below the editor.</p></div>}</aside>
       </div>
-      <footer className="hw-statusbar"><span className={connection === 'Connected' ? 'hw-connected' : ''}><i />Runtime: {connection}</span>{connection !== 'Connected' && <button onClick={() => setSession(value => value + 1)} disabled={!!busy}>Reconnect</button>}<span>Project r{project.revision}</span><span>{dirty ? 'Editor has unsaved changes' : 'Server saved'}</span><span className="hw-status-engine">Velxio · AVR8 · Open source</span></footer>
+      {networkOpen && <EspNetworkDialog projectId={project.id} board={project.board} running={!!results?.running} onClose={() => setNetworkOpen(false)}/>}
+      {flashOpen && <BoardFlashDialog project={project} dirty={dirty} running={!!results?.running} onClose={() => setFlashOpen(false)}/>}
+      <footer className="hw-statusbar"><span className={connection === 'Connected' ? 'hw-connected' : ''}><i />Runtime: {connection}</span>{connection !== 'Connected' && <button onClick={() => setSession(value => value + 1)} disabled={!!busy}>Reconnect</button>}<span>Project r{project.revision}</span><span>{dirty ? 'Editor has unsaved changes' : 'Server saved'}</span><button className="hw-connect-board" disabled={!!busy || project.board === 'unselected' || project.board.startsWith('raspberry-pi-') || project.board === 'pi-pico' || project.board === 'pi-pico-w'} onClick={() => setFlashOpen(true)}><Cable size={13}/>Connect board &amp; flash</button><span className="hw-status-engine">Velxio · AVR8 · Open source</span></footer>
     </>}
   </main>
 }

@@ -7,7 +7,7 @@ from pathlib import Path
 from fastapi import HTTPException
 
 from backend.hardware import BOARD_ALIASES, service
-from backend.sample_projects import example_boards, normalize_template
+from backend.sample_projects import example_boards, example_capabilities, normalize_template
 
 ANALYSIS_PATH = Path(__file__).resolve().parent / 'templates/example-analysis.json'
 EXAMPLES_PATH = ANALYSIS_PATH.with_name('velxio-examples.json')
@@ -79,9 +79,26 @@ def _source_entries(example):
     return [('code', example.get('code', ''))]
 
 
+def _current_analysis(analysis, raw, catalog):
+    capabilities = example_capabilities(raw, catalog)
+    result = {**analysis, **{key: value for key, value in capabilities.items()
+                           if key not in ('normalized_template', 'normalization_error')}}
+    # Dependency resolution remains unverified even when every hardware model exists.
+    dependencies = capabilities['dependencies']
+    external = [header for header in dependencies['include_headers']
+                if header not in ('Arduino.h', 'Wire.h', 'SPI.h', 'EEPROM.h')]
+    result['blockers'] = copy.deepcopy(capabilities['blockers'])
+    if (external or dependencies['declared_libraries']) and not any(
+            blocker['category'] == 'dependency_unverified' for blocker in result['blockers']):
+        result['blockers'].append({'category': 'dependency_unverified', 'detail': dependencies})
+    result['fully_supported'] = capabilities['simulation_ready'] and not result['blockers']
+    result['verification'] = {**analysis.get('verification', {}),
+                              'canonical_service': 'passed' if capabilities['canonical_supported'] else 'failed'}
+    return result
+
+
 def _support(example):
-    canonical = example.get('verification', {}).get('canonical_service') == 'passed'
-    return canonical, canonical and not example.get('blockers')
+    return example.get('canonical_supported', False), example.get('fully_supported', False)
 
 
 def get_example_reference(example_id, catalog=None):
@@ -93,6 +110,7 @@ def get_example_reference(example_id, catalog=None):
     raw = examples[example_id]
     analysis = next((item for item in data['examples'] if item['id'] == example_id), {})
     catalog = service.catalog if catalog is None else catalog
+    analysis = _current_analysis(analysis, raw, catalog)
     result, analysis_truncated = _analysis_fields(analysis)
     entries = _source_entries(raw)
     origin, source = entries[0]
@@ -125,6 +143,9 @@ def get_example_reference(example_id, catalog=None):
         truncation['board_sources'] |= len(content) > remaining
         remaining -= len(board_sources[-1]['source'])
     truncation['metadata'] = bounded[0]
+    libraries_truncated = [False]
+    libraries = _bound(raw.get('libraries', []), libraries_truncated, MAX_FILES)
+    truncation['libraries'] = libraries_truncated[0]
     boards = example_boards(raw, catalog)
     canonical, fully_supported = _support(analysis)
     limitations = copy.deepcopy(result.get('blockers', []))
@@ -139,9 +160,6 @@ def get_example_reference(example_id, catalog=None):
             normalization_error = str(exc.detail) if isinstance(exc, HTTPException) else str(exc)
     if normalization_error:
         limitations.append({'category': 'normalization_unavailable', 'detail': normalization_error[:2000]})
-    libraries_truncated = [False]
-    libraries = _bound(raw.get('libraries', []), libraries_truncated, MAX_FILES)
-    truncation['libraries'] = libraries_truncated[0]
     result.update({
         'id': raw['id'], 'title': raw['title'], 'description': raw.get('description', '')[:2000],
         'reference_source': data['source'], 'total_examples': len(examples),
@@ -154,6 +172,10 @@ def get_example_reference(example_id, catalog=None):
         'files': files, 'file_count': len(raw.get('files', [])), 'board_sources': board_sources,
         'libraries': libraries, 'limitations': limitations,
         'canonical_supported': canonical, 'fully_supported': fully_supported,
+        'seedable': normalized is not None, 'available': normalized is not None,
+        'simulation_ready': normalized is not None and analysis['simulation_ready'],
+        'simulation_scope': analysis['simulation_scope'] if normalized is not None else 'blocked',
+        'part_scopes': analysis['part_scopes'],
         'normalized_template': normalized, 'normalization_error': normalization_error,
         'verification': VERIFICATION,
         'verification_status': {**analysis.get('verification', {}), 'real_compile': 'not_verified',
@@ -189,6 +211,7 @@ def search_example_requirements(query: str, limit: int = 5, board=None, supporte
         raw = examples.get(analysis['id'])
         if raw is None:
             continue
+        analysis = _current_analysis(analysis, raw, service.catalog)
         boards = example_boards(raw, service.catalog)
         canonical, fully_supported = _support(analysis)
         if board is not None and board not in boards:
@@ -228,6 +251,9 @@ def search_example_requirements(query: str, limit: int = 5, board=None, supporte
             'source_preview': source[:SOURCE_PREVIEW_CHARS], 'source_origin': origin,
             'source_preview_truncated': len(source) > SOURCE_PREVIEW_CHARS,
             'canonical_supported': canonical, 'fully_supported': fully_supported, 'truncated': truncated,
+            'seedable': analysis['seedable'], 'available': analysis['available'],
+            'simulation_ready': analysis['simulation_ready'], 'simulation_scope': analysis['simulation_scope'],
+            'part_scopes': analysis['part_scopes'],
         })
         results.append(result)
     return {'source': data['source'], 'total_examples': len(examples),

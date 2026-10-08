@@ -2,7 +2,9 @@ import { AVRSimulator } from '../../vendor/velxio/frontend/src/simulation/AVRSim
 import { PinManager } from '../../vendor/velxio/frontend/src/simulation/PinManager'
 import { verifyHexChecksum } from '../../vendor/velxio/frontend/src/utils/hexParser'
 import { runtimeUrl } from '../lib/hardware'
-import { C3Simulator, validateC3Artifact } from './C3Simulator'
+import { ESP_BOARDS, EspEmulator, espChip, espPinExists, validateEspArtifact } from './espEmulator'
+import { VelxioParts } from './velxioParts'
+import type { PeripheralState, PicoPeripheralSimulator } from './velxioParts'
 import type { HardwareArtifact, HardwareProject, WireEndpoint } from '../lib/hardware'
 
 export type DigitalSample = { pin: string; level: boolean; time_ms: number; cycles: number }
@@ -15,23 +17,26 @@ export type RuntimeResults = {
   running: boolean; engine: string; artifact_id: string | null; cycles: number; simulated_ms: number
   serial: string; serial_link: unknown; pins: Record<string, { level: boolean | null; drive: string }>
   limitations: string[]; board?: string | null; clock_hz?: number; samples?: DigitalSample[]
-  sample_capacity?: number; dropped_samples?: number
+  sample_capacity?: number; dropped_samples?: number; state?: string; error?: string | null
+  peripherals?: Record<string, PeripheralState>; support_warnings?: string[]
 }
 export type RuntimeArtifact = Omit<HardwareArtifact, 'hex'> & {
   hex?: string; program?: string; bin?: string; encoding?: string; load_address?: number; size_bytes?: number
   chip?: string; image_kind?: string; flash_size_bytes?: number
 }
-type Simulator = Pick<AVRSimulator, 'pinManager' | 'onBaudRateChange' | 'onPinChangeWithTime' | 'start' | 'stop' | 'isRunning' | 'getClockHz' | 'getCurrentCycles' | 'setPinState'> & {
+type Simulator = Pick<AVRSimulator, 'pinManager' | 'onBaudRateChange' | 'onPinChangeWithTime' | 'stop' | 'isRunning' | 'getClockHz' | 'getCurrentCycles' | 'setPinState'> & {
+  start(): void | Promise<void>
   onSerialData: ((char: string, uart?: number) => void) | null
   getBusBinding(): { uart?: { receive(byte: number): void }[] }
 }
-type PicoSimulator = Simulator & { loadBinary(base64: string): void }
+type PicoSimulator = Simulator & PicoPeripheralSimulator & { loadBinary(base64: string): void }
 // Bundle the upstream module without imposing its older rp2040js declarations on the application.
 const picoModules = import.meta.glob<{ RP2040Simulator: new (pins: PinManager) => PicoSimulator }>('../../vendor/velxio/frontend/src/simulation/RP2040Simulator.ts', { eager: true })
 const RP2040Simulator = picoModules['../../vendor/velxio/frontend/src/simulation/RP2040Simulator.ts'].RP2040Simulator
 const SAMPLE_CAPACITY = 8192
 const AVR_BOARDS = new Set(['arduino-uno', 'arduino-nano', 'arduino-mega'])
 const PICO_BOARDS = new Set(['pi-pico', 'pi-pico-w'])
+const activeRuntimes = new Set<HardwareRuntime>()
 
 export function connectedEndpoints(project: HardwareProject, endpoint: WireEndpoint): WireEndpoint[] {
   const key = (pin: WireEndpoint) => `${pin.component}:${pin.pin}`
@@ -52,11 +57,16 @@ export function connectedEndpoints(project: HardwareProject, endpoint: WireEndpo
 }
 
 export function boardPin(board: string, name: string): number | null {
-  if (board === 'esp32-c3') {
-    if (name === 'TX' || name === 'TX0') return 21
-    if (name === 'RX' || name === 'RX0') return 20
-    if (name === 'LED_BUILTIN') return 8
-    if (/^(?:GPIO|GP|D)?(?:[0-9]|1[0-9]|2[01])$/.test(name)) return Number(name.replace(/^(?:GPIO|GP|D)/, ''))
+  if (ESP_BOARDS.has(board)) {
+    const chip = espChip(board)
+    if (name === 'TX' || name === 'TX0') return chip === 'esp32c3' ? 21 : 43
+    if (name === 'RX' || name === 'RX0') return chip === 'esp32c3' ? 20 : 44
+    // Built-in LEDs are addressable RGB devices, not plain digital LEDs.
+    if (name === 'LED_BUILTIN') return chip === 'esp32c3' ? 8 : 48
+    if (/^(?:GPIO|GP|D)?\d+$/.test(name)) {
+      const pin = Number(name.replace(/^(?:GPIO|GP|D)/, ''))
+      return espPinExists(chip, pin) ? pin : null
+    }
     return null
   }
   if (PICO_BOARDS.has(board)) {
@@ -89,7 +99,7 @@ export function unoPin(name: string): number | null { return boardPin('arduino-u
 
 function channelName(board: string, pin: number): string | null {
   if (!Number.isInteger(pin) || pin < 0) return null
-  if (board === 'esp32-c3') return pin < 22 ? `GPIO${pin}` : null
+  if (ESP_BOARDS.has(board)) return espPinExists(espChip(board), pin) ? `GPIO${pin}` : null
   if (PICO_BOARDS.has(board)) return pin < 30 ? `GP${pin}` : null
   const digital = board === 'arduino-mega' ? 54 : 14
   const analog = board === 'arduino-mega' ? 16 : 6
@@ -107,7 +117,7 @@ function artifactPayload(artifact: RuntimeArtifact, legacy: 'hex' | 'bin'): stri
 }
 
 export function validateRuntimeArtifact(project: HardwareProject, artifact: RuntimeArtifact): string {
-  if (!AVR_BOARDS.has(project.board) && !PICO_BOARDS.has(project.board) && project.board !== 'esp32-c3') throw new Error(`Unsupported browser simulation board: ${project.board}.`)
+  if (!AVR_BOARDS.has(project.board) && !PICO_BOARDS.has(project.board) && !ESP_BOARDS.has(project.board)) throw new Error(`Unsupported browser simulation board: ${project.board}.`)
   if (artifact.board !== project.board) throw new Error('Firmware artifact board does not match the selected board.')
   if (artifact.source_revision !== project.firmware.revision) throw new Error('Firmware artifact is stale. Compile the current project first.')
   if (AVR_BOARDS.has(project.board)) {
@@ -117,9 +127,9 @@ export function validateRuntimeArtifact(project: HardwareProject, artifact: Runt
     if (!lines.length || !lines.every(line => /^:[0-9a-f]+$/i.test(line) && line.length === 11 + Number.parseInt(line.slice(1, 3), 16) * 2 && verifyHexChecksum(line)) || !lines.some(line => line.slice(7, 9) === '00') || lines.at(-1)?.toUpperCase() !== ':00000001FF') throw new Error('Compiler artifact is not valid Intel HEX.')
     return payload
   }
-  if (project.board === 'esp32-c3') {
+  if (ESP_BOARDS.has(project.board)) {
     const payload = artifactPayload(artifact, 'bin')
-    validateC3Artifact(artifact, payload)
+    validateEspArtifact(artifact, payload)
     return payload
   }
   if (artifact.format !== 'bin') throw new Error(`${project.board} requires a raw flash bin artifact, not ${artifact.format}; UF2 is not supported by this loader.`)
@@ -140,6 +150,7 @@ export class HardwareRuntime {
   private project: HardwareProject | null = null
   private socket: WebSocket | null = null
   private artifactId: string | null = null
+  private artifact: RuntimeArtifact | null = null
   private serial = ''
   private serialLink: unknown = null
   private timer: ReturnType<typeof setInterval> | null = null
@@ -148,6 +159,8 @@ export class HardwareRuntime {
   private queue: Promise<void> = Promise.resolve()
   private elements = new Map<string, HTMLElement>()
   private cleanups: (() => void)[] = []
+  private peripheralParts: VelxioParts | null = null
+  private inputCleanups = new Map<string, () => void>()
   private samples: (DigitalSample | undefined)[] = new Array(SAMPLE_CAPACITY)
   private sampleStart = 0
   private sampleCount = 0
@@ -168,6 +181,7 @@ export class HardwareRuntime {
 
   connect(project: HardwareProject, onConnection: (status: string) => void, onProject: (project: HardwareProject) => void) {
     if (this.disposed) throw new Error('Runtime has been disposed.')
+    if (this.project && this.project.id !== project.id) this.stop()
     this.project = project
     this.socket = new WebSocket(runtimeUrl(project))
     const socket = this.socket
@@ -177,6 +191,8 @@ export class HardwareRuntime {
       try { message = JSON.parse(event.data) } catch { return }
       if (message.type === 'runtime_connected') { onConnection('Connected'); return }
       if (message.type !== 'command' || !message.id || message.project_id !== project.id) return
+      // A stop must cancel a worker startup before its queued acknowledgement.
+      if (message.name === 'stop_simulation' && this.simulator instanceof EspEmulator) this.stop()
       this.queue = this.queue.then(async () => {
         if (this.disposed) return
         try {
@@ -198,6 +214,7 @@ export class HardwareRuntime {
     socket.onclose = event => {
       this.startupVersion++
       this.simulator?.stop()
+      this.releaseAttachments()
       if (!this.disposed) {
         onConnection(event.code === 4409 ? 'Owned by another browser' : event.code === 4403 ? 'Runtime authorization failed' : 'Disconnected')
         this.publish()
@@ -212,24 +229,72 @@ export class HardwareRuntime {
   }
 
   registerElement(id: string, element: HTMLElement | null) {
-    if (element) this.elements.set(id, element)
-    else this.elements.delete(id)
+    if (this.elements.get(id) === element) return
+    const simulator = this.simulator
+    const part = this.project?.components.find(part => part.id === id)
+    // Upstream leases cannot cancel an echo already queued on the CPU.
+    if (this.elements.has(id) && (part?.type === 'hc-sr04' || part?.type === 'dht22') && simulator instanceof AVRSimulator
+      && simulator.isRunning() && Number.isFinite(simulator.lineHub().cyclesUntilNextEdge(simulator.getCurrentCycles()))) this.stop()
+    this.peripheralParts?.release(id)
+    this.inputCleanups.get(id)?.()
+    this.inputCleanups.delete(id)
+    if (element) {
+      this.elements.set(id, element)
+      if (this.simulator?.isRunning()) {
+        const part = this.project?.components.find(part => part.id === id)
+        if (part) this.peripheralParts?.attach(part, element)
+        this.attachInputs(id)
+      }
+    } else this.elements.delete(id)
+  }
+
+  updateProject(project: HardwareProject) {
+    const previous = this.project
+    const structure = (snapshot: HardwareProject) => JSON.stringify({
+      id: snapshot.id, board: snapshot.board, firmware: snapshot.firmware,
+      components: snapshot.components.map(part => ({ id: part.id, type: part.type, x: part.x, y: part.y, rotation: part.rotation })),
+      wires: snapshot.wires.map(wire => ({ id: wire.id, from: wire.from, to: wire.to })),
+    })
+    if (previous && structure(previous) !== structure(project)) this.stop()
+    this.project = project
+    for (const part of project.components) {
+      const old = previous?.components.find(component => component.id === part.id)
+      if (!old || JSON.stringify(old.properties) !== JSON.stringify(part.properties)) this.updateComponentProperties(part.id, part.properties)
+    }
+  }
+
+  updateComponentProperties(id: string, properties: Record<string, unknown>) {
+    const element = this.elements.get(id)
+    if (element) Object.assign(element, properties)
+    this.peripheralParts?.update(id, properties, element)
+  }
+
+  private releaseAttachments() {
+    this.peripheralParts?.releaseAll()
+    for (const cleanup of this.inputCleanups.values()) cleanup()
+    this.inputCleanups.clear()
+    this.cleanups.forEach(cleanup => cleanup())
+    this.cleanups = []
+    activeRuntimes.delete(this)
   }
 
   async run(project: HardwareProject, artifact: RuntimeArtifact) {
     if (this.disposed) throw new Error('Runtime has been disposed.')
     const payload = validateRuntimeArtifact(project, artifact)
+    for (const runtime of activeRuntimes) if (runtime !== this) runtime.stop()
     const startupVersion = ++this.startupVersion
     this.simulator?.stop()
-    this.cleanups.forEach(cleanup => cleanup())
-    this.cleanups = []
+    this.releaseAttachments()
+    this.peripheralParts = null
     this.project = project
     this.serial = ''
     this.serialLink = null
     this.artifactId = artifact.id
+    this.artifact = { ...artifact }
     this.resetSamples()
-    const simulator: Simulator = project.board === 'esp32-c3' ? new C3Simulator(new PinManager()) : PICO_BOARDS.has(project.board) ? new RP2040Simulator(new PinManager()) : new AVRSimulator(new PinManager(), project.board === 'arduino-mega' ? 'mega' : 'uno')
+    const simulator: Simulator = ESP_BOARDS.has(project.board) ? new EspEmulator(espChip(project.board)) : PICO_BOARDS.has(project.board) ? new RP2040Simulator(new PinManager()) : new AVRSimulator(new PinManager(), project.board === 'arduino-mega' ? 'mega' : 'uno')
     this.simulator = simulator
+    activeRuntimes.add(this)
     const previousSerial = simulator.onSerialData
     const captureSerial = (char: string, uart?: number) => {
       previousSerial?.(char, uart)
@@ -261,30 +326,56 @@ export class HardwareRuntime {
     simulator.onPinChangeWithTime = capture
     this.cleanups.push(() => { if (simulator.onPinChangeWithTime === capture) simulator.onPinChangeWithTime = previousEdge })
     try {
-      if (simulator instanceof C3Simulator) {
-        await simulator.loadBinary(payload)
-        if (this.disposed || this.simulator !== simulator || this.startupVersion !== startupVersion) throw new Error('ESP32-C3 startup was cancelled.')
+      if (simulator instanceof EspEmulator) {
+        simulator.onError = () => {
+          if (this.disposed || this.simulator !== simulator || this.startupVersion !== startupVersion) return
+          this.releaseAttachments()
+          this.publish()
+        }
+        this.cleanups.push(() => { simulator.onError = null })
+        const loading = simulator.loadBinary(payload, this.project.id)
+        this.ensureTimer()
+        this.publish()
+        await loading
+        if (this.disposed || this.simulator !== simulator || this.startupVersion !== startupVersion) throw new Error('ESP startup was cancelled.')
+        this.publish()
       } else if (simulator instanceof RP2040Simulator) simulator.loadBinary(payload)
       else if (simulator instanceof AVRSimulator) simulator.loadHex(payload)
+      if (simulator instanceof AVRSimulator || simulator instanceof RP2040Simulator) {
+        this.peripheralParts = new VelxioParts(project, simulator, () => this.stop())
+        for (const part of project.components) {
+          const element = this.elements.get(part.id)
+          if (element) this.peripheralParts.attach(part, element)
+        }
+      }
       this.attachInputs()
-      simulator.start()
+      if (simulator instanceof EspEmulator) await simulator.start()
+      else simulator.start()
       this.ensureTimer()
-      await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
-      if (this.disposed || this.simulator !== simulator || !simulator.isRunning() || simulator.getCurrentCycles() <= 0) throw new Error('Emulator did not start executing firmware. Keep this browser tab visible.')
+      if (!(simulator instanceof EspEmulator)) await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+      if (this.disposed || this.simulator !== simulator || this.startupVersion !== startupVersion || !simulator.isRunning() || simulator.getCurrentCycles() <= 0) throw new Error('Emulator did not start executing firmware. Keep this browser tab visible.')
       this.publish()
     } catch (error) {
       simulator.stop()
-      this.publish()
+      if (this.simulator === simulator && this.startupVersion === startupVersion) {
+        this.releaseAttachments()
+        this.publish()
+      }
       throw error
     }
   }
 
-  stop() { this.startupVersion++; this.simulator?.stop(); this.publish() }
+  async reset(): Promise<void> {
+    if (!this.project || !this.artifact) throw new Error('Compile and load firmware before resetting the simulation.')
+    await this.run(this.project, this.artifact)
+  }
+
+  stop() { this.startupVersion++; this.simulator?.stop(); this.releaseAttachments(); this.publish() }
 
   getChannels(): string[] {
-    if (!this.project || (!AVR_BOARDS.has(this.project.board) && !PICO_BOARDS.has(this.project.board) && this.project.board !== 'esp32-c3')) return []
-    const count = this.project.board === 'esp32-c3' ? 22 : PICO_BOARDS.has(this.project.board) ? 30 : this.project.board === 'arduino-mega' ? 70 : 20
-    return Array.from({ length: count }, (_, pin) => channelName(this.project!.board, pin)!)
+    if (!this.project || (!AVR_BOARDS.has(this.project.board) && !PICO_BOARDS.has(this.project.board) && !ESP_BOARDS.has(this.project.board))) return []
+    const count = this.project.board === 'esp32-s3' ? 49 : this.project.board === 'esp32-c3' ? 22 : PICO_BOARDS.has(this.project.board) ? 30 : this.project.board === 'arduino-mega' ? 70 : 20
+    return Array.from({ length: count }, (_, pin) => channelName(this.project!.board, pin)).filter((pin): pin is string => pin !== null)
   }
 
   readChannel(pin: string): RuntimeChannel {
@@ -346,9 +437,10 @@ export class HardwareRuntime {
     return null
   }
 
-  private attachInputs() {
+  private attachInputs(id?: string) {
     if (!this.project || !this.simulator) return
-    for (const part of this.project.components.filter(part => part.type === 'pushbutton' || part.type === 'pushbutton-6mm')) {
+    for (const part of this.project.components.filter(part => (!id || part.id === id) && (part.type === 'pushbutton' || part.type === 'pushbutton-6mm'))) {
+      if (this.inputCleanups.has(part.id)) continue
       const element = this.elements.get(part.id)
       if (!element) continue
       const update = (pressed: boolean) => {
@@ -362,7 +454,8 @@ export class HardwareRuntime {
             const number = boardPin(this.project!.board, pin.pin)
             if (number === null || this.simulator?.pinManager.getPad(number).drive !== 'z') continue
             const pull = this.simulator?.pinManager.getPad(number).pull
-            this.simulator?.setPinState(number, pressed ? power : pull === 1)
+            const released = this.simulator instanceof EspEmulator ? ground : pull === 1
+            this.simulator?.setPinState(number, pressed ? power : released)
           }
         }
       }
@@ -370,7 +463,8 @@ export class HardwareRuntime {
       const release = () => update(false)
       element.addEventListener('button-press', press)
       element.addEventListener('button-release', release)
-      this.cleanups.push(() => { element.removeEventListener('button-press', press); element.removeEventListener('button-release', release) })
+      if (this.simulator instanceof EspEmulator) update(false)
+      this.inputCleanups.set(part.id, () => { element.removeEventListener('button-press', press); element.removeEventListener('button-release', release) })
     }
   }
 
@@ -399,17 +493,28 @@ export class HardwareRuntime {
       pins[pin] = { level: channel.level, drive: channel.drive }
     }
     const pico = PICO_BOARDS.has(this.project?.board ?? '')
-    const c3 = this.project?.board === 'esp32-c3'
+    const esp = ESP_BOARDS.has(this.project?.board ?? '')
+    const espSimulator = simulator instanceof EspEmulator ? simulator : null
+    const peripherals = this.peripheralParts?.results(this.elements) ?? {}
+    const supportWarnings = Object.entries(peripherals).flatMap(([id, state]) => state.warning ? [`${id}: ${state.warning}`] : [])
     return {
-      running: simulator?.isRunning() ?? false, engine: c3 ? 'Velxio Esp32C3Simulator / RiscVCore (experimental)' : pico ? 'Velxio RP2040Simulator / rp2040js' : 'Velxio AVRSimulator / avr8js', artifact_id: this.artifactId,
+      running: simulator?.isRunning() ?? false, engine: esp ? 'esp-emulator v0.48.0 / WASM' : pico ? 'Velxio RP2040Simulator / rp2040js' : 'Velxio AVRSimulator / avr8js', artifact_id: this.artifactId,
+      ...(esp ? { state: espSimulator?.state ?? 'idle', error: espSimulator?.error ?? null } : {}),
       cycles, simulated_ms: clock ? cycles * 1000 / clock : 0, serial: this.serial, serial_link: simulator instanceof AVRSimulator ? simulator.serialLink() : this.serialLink, pins,
       board: this.project?.board ?? null, clock_hz: clock, samples: this.getSamples().slice(-256), sample_capacity: SAMPLE_CAPACITY, dropped_samples: this.droppedSamples,
+      peripherals, support_warnings: supportWarnings,
       limitations: [
-        c3 ? 'Experimental ESP32-C3 RV32IMC execution at a nominal 160 MHz uses the vendor core and public ROM; upstream peripheral/ROM coverage is incomplete and Arduino firmware execution is not certified. RTC image segments are not mapped upstream. GPIO drive direction is not reported; UART0 only, no USB CDC or wireless.' : pico ? 'RP2040 GPIO, UART0, timers and ADC use the real single-core emulator at 125 MHz; USB CDC, second core and wireless are not supported.' : 'Uno/Nano ATmega328P or Mega ATmega2560 GPIO, UART0, timers and ADC use the real AVR emulator at 16 MHz; Nano A6/A7 are analog-only, not digital channels.',
+        esp ? 'Official esp-emulator v0.48.0 WASM executes ESP32-C3 RISC-V or ESP32-S3 Xtensa firmware from a complete merged flash image, booting its embedded ROM. CPU cycles and clock are reported by the worker. Classic ESP32 is not supported. UART text/input is connected; USB CDC is not integrated. Simulated WiFi access-point credentials can be configured before startup. No Bluetooth bridge or host/internet network access is provided.' : pico ? 'RP2040 GPIO, UART0, timers and ADC use the real single-core emulator at 125 MHz; USB CDC, second core and wireless are not supported.' : 'Uno/Nano ATmega328P or Mega ATmega2560 GPIO, UART0, timers and ADC use the real AVR emulator at 16 MHz; Nano A6/A7 are analog-only, not digital channels.',
         ...(this.project?.board === 'pi-pico-w' ? ['Pico W compatibility is RP2040 CPU and external GPIO/UART0 only. CYW43 radio, WiFi, Bluetooth and the CYW43-controlled onboard LED are not emulated; firmware that initializes CYW43 may stall. GP25 is not the Pico W onboard LED.'] : []),
-        'Digital edge capture uses simulator timestamps; the bounded shared ring drops oldest edges on overrun. Unobserved levels are unknown.',
+        esp ? 'ESP GPIO observations are coarse 150 ms snapshots of output and output-enable registers, not edge-accurate capture. Input readback and pull configuration are unavailable in the pinned WASM API; input levels reflect host button injection only and otherwise remain unknown. Button release drives the opposite rail as a logical approximation. PWM, addressable onboard LEDs and external sensor/bus models are not integrated.' : 'Digital edge capture uses simulator timestamps; the bounded shared ring drops oldest edges on overrun. Unobserved levels are unknown.',
         'LED wiring is digital continuity only; resistor current and analog/SPICE measurements are not modeled by this runtime.',
-        'Only LEDs and rail-connected pushbuttons have peripheral behavior here; other catalog parts are placement-only.',
+        'LEDs and rail-connected pushbuttons retain digital behavior. The scoped Uno/Nano/Mega adapter reuses upstream rotary and slide potentiometer ADC, servo pulse decoding and HC-SR04 timed echo behavior only with valid board-specific signals and the selected board’s 5V/ground wiring. Nano A6/A7 accept potentiometer ADC input only. Common-cathode RGB digital/PWM channels and DHT22 temperature/humidity are connected through the original upstream models. Common-anode RGB and these Pico peripheral paths are not enabled.',
+        ...(pico ? ['The Pico/Pico W adapter is limited to upstream rotary and slide potentiometer ADC input on external GP26–GP28 with the selected board’s 3V3/ground wiring. GP29, servo and HC-SR04 are not enabled. Rotary potentiometer behavior is verified with real Pico/Pico W firmware; slider behavior is verified on Uno only.'] : []),
+        'Photoresistor AO and NTC OUT reuse the original upstream voltage-generating models on Uno A0–A5 only, with VCC on Uno 5V and GND on its ground net. Controls are lux (0–1000, default 500) and temperature in Celsius (−40–125, default 25). Photoresistor DO only observes GPIO for its indicator; no comparator output or physical light curve is modeled.',
+        'PIR reuses the original upstream digital model on Uno only: VCC requires 5V, GND requires ground and OUT requires a digital-capable GPIO. Click or trigger: true starts/restarts a three-second browser-wall-clock HIGH pulse; it is not timed in guest cycles. Slide switches and other catalog components are not enabled by this sensor integration.',
+        'SSD1306 OLED, I2C LCD1602/LCD2004, MPU6050, DS1307 and DS3231 use their original upstream I2C models and scoped bus fabric on Uno A4/A5 only. VCC/VIN accepts Uno 3V3 or 5V; the 8-pin 3V3 pad requires Uno 3V3. Other boards and unwired displays are not enabled.',
+        'Only the 8-pin SSD1306 SPI path is enabled, using the original upstream model and existing Uno AVR SPI controller: CLK/SCK requires D13, DATA/MOSI requires D11, and CS/DC require distinct GPIOs. Protocol is selected by the actual protocol property or, when absent, a GPIO-connected CS. RST is optional and must use a separate GPIO when wired; the upstream SPI model does not emulate the RST pad. SD and MFRC522 SPI integration remain deferred.',
+        ...supportWarnings,
       ],
     }
   }
@@ -423,8 +528,9 @@ export class HardwareRuntime {
 
   dispose() {
     this.disposed = true
+    this.startupVersion++
     this.simulator?.stop()
-    this.cleanups.forEach(cleanup => cleanup())
+    this.releaseAttachments()
     if (this.timer) clearInterval(this.timer)
     this.socket?.close()
     this.elements.clear()

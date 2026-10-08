@@ -1,0 +1,22 @@
+import {expect,test} from '@playwright/test'
+for(const board of ['arduino-uno','arduino-nano','arduino-mega'])test(`${board} DHT22 answers the real Adafruit library reader`,async({page,request})=>{
+ test.setTimeout(180000)
+ const project=await(await request.post('/api/hardware/projects',{data:{name:'Adafruit DHT22',board}})).json()
+ const command=async(name:string,args:Record<string,unknown>)=>{const r=await request.post(`/api/hardware/project/${project.id}/command`,{data:{name,args}});expect(r.ok(),await r.text()).toBe(true)}
+ await command('add_component',{type:'dht22',id:'dht',x:430,y:160})
+ for(const [pin,target] of [['5V','VCC'],['GND','GND'],['2','SDA']])await command('connect_wire',{from:{component:'board',pin},to:{component:'dht',pin:target}})
+ await command('generate_firmware',{source:'#include <DHT.h>\nDHT dht(2,DHT22);\nvoid setup(){Serial.begin(9600);dht.begin();}\nvoid loop(){delay(2000);float h=dht.readHumidity();float t=dht.readTemperature();if(isnan(h)||isnan(t))Serial.println("DHT error");else{Serial.print(h);Serial.print(",");Serial.println(t);}}'})
+ await page.goto(`/project/${project.id}`)
+ await page.getByRole('button',{name:'Compile',exact:true}).click()
+ await expect(page.getByRole('button',{name:'Run',exact:true})).toBeEnabled({timeout:100000})
+ await page.getByRole('button',{name:'Run',exact:true}).click()
+ await page.getByRole('button',{name:'Serial monitor',exact:true}).click()
+ await expect(page.getByLabel('Serial output',{exact:true})).toContainText('50.00,25.00',{timeout:30000})
+ await page.getByRole('button',{name:'Stop',exact:true}).click()
+ await command('modify_component',{id:'dht',properties:{temperature:18,humidity:65}})
+ await page.evaluate(async id=>{const response=await fetch(`/api/hardware/projects/${id}`);const project=await response.json();window.dispatchEvent(new CustomEvent('wireup:project-changed',{detail:{project}}))},project.id)
+ await page.getByRole('button',{name:'Run',exact:true}).click()
+ await page.getByRole('button',{name:'Serial monitor',exact:true}).click()
+ await expect(page.getByLabel('Serial output',{exact:true})).toContainText('65.00,18.00',{timeout:30000})
+ await page.getByRole('button',{name:'Stop',exact:true}).click()
+})

@@ -21,7 +21,7 @@ export type HardwareProject = {
 export type HardwareProjectSummary = Pick<HardwareProject, 'id' | 'name' | 'board' | 'revision' | 'created_at' | 'updated_at'>
 export type CatalogComponent = {
   id?: string; type?: string; name: string; category?: string; description?: string; thumbnail?: string; tagName?: string
-  pins?: (string | HardwarePin)[]; connectable?: boolean; simulation_supported?: boolean
+  pins?: (string | HardwarePin)[]; connectable?: boolean; simulation_supported?: boolean; simulation_boards?: string[]; simulation_scope?: string
   properties?: unknown; defaultValues?: Record<string, unknown>; supported_board?: boolean; schematic_only?: boolean; compile?: boolean; compile_timeout_seconds?: number; simulation?: string; unavailable_reason?: string
 }
 export type HardwareCommand =
@@ -60,6 +60,7 @@ export function createRequestSignal(timeoutMs: number, signal?: AbortSignal | nu
 }
 
 export function hardwareCommandTimeoutMs(board: string | undefined, name: HardwareCommand, compileTimeoutSeconds?: number): number {
+  if (name === 'run_simulation' && (board === 'esp32-c3' || board === 'esp32-s3')) return 100_000
   if (name !== 'compile_firmware') return 15_000
   const boardTimeout = board?.startsWith('esp32') || board?.startsWith('xiao-esp32') ? 600
     : board === 'pi-pico' || board === 'pi-pico-w' ? 300 : 90

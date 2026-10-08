@@ -1,0 +1,37 @@
+import {expect,test} from '@playwright/test'
+test('C3 firmware reads actual connected button and stops worker on project change',async({page,request})=>{
+ test.setTimeout(720000)
+ const project=await(await request.post('/api/hardware/projects',{data:{name:'ESP button input',board:'esp32-c3'}})).json()
+ const command=async(name:string,args:Record<string,unknown>,timeout=30000)=>{const r=await request.post(`/api/hardware/project/${project.id}/command`,{data:{name,args},timeout});expect(r.ok(),await r.text()).toBe(true);return r.json()}
+ await command('add_component',{type:'pushbutton',id:'button',x:450,y:150})
+ await command('connect_wire',{from:{component:'board',pin:'4'},to:{component:'button',pin:'1.l'}})
+ await command('connect_wire',{from:{component:'board',pin:'GND.1'},to:{component:'button',pin:'2.l'}})
+ await command('generate_firmware',{source:'void setup(){Serial.begin(115200);pinMode(4,INPUT_PULLUP);}\nvoid loop(){Serial.println(digitalRead(4)==LOW?"PRESSED":"RELEASED");delay(100);}'})
+ await command('compile_firmware',{},650000)
+ await page.goto(`/project/${project.id}`)
+ await page.getByRole('button',{name:'Run',exact:true}).click()
+ await expect(page.getByRole('button',{name:'Stop',exact:true})).toBeVisible({timeout:60000})
+ await page.getByRole('button',{name:'Serial monitor',exact:true}).click()
+ await expect(page.getByLabel('Serial output',{exact:true})).toContainText('RELEASED',{timeout:60000})
+ await page.locator('wokwi-pushbutton').evaluate(element=>element.dispatchEvent(new CustomEvent('button-press',{detail:{pressed:true}})))
+ await expect(page.getByLabel('Serial output',{exact:true})).toContainText('PRESSED',{timeout:10000})
+ await page.locator('wokwi-pushbutton').evaluate(element=>element.dispatchEvent(new CustomEvent('button-release',{detail:{pressed:false}})))
+ await page.getByRole('button',{name:'Stop',exact:true}).click()
+ const other=await(await request.post('/api/hardware/projects',{data:{name:'After ESP',board:'arduino-uno'}})).json()
+ await page.goto(`/project/${other.id}`)
+ await expect(page.getByRole('button',{name:'Stop',exact:true})).toHaveCount(0)
+ await expect(page.getByRole('button',{name:'Run',exact:true})).toBeDisabled()
+})
+
+test('ESP startup errors are visible and stop cancels asynchronous loading',async({page,request})=>{
+ const projects=await(await request.get('/api/hardware/projects')).json()
+ const candidates=projects.projects.filter((p:{board:string})=>p.board==='esp32-c3')
+ let project
+ for(const summary of candidates){const loaded=await(await request.get(`/api/hardware/projects/${summary.id}`)).json();if(loaded.compiler?.artifact&&!loaded.compiler.stale){project=loaded;break}}
+ test.skip(!project,'A compiled C3 fixture is required')
+ await page.route('**/esp-emulator/pkg/esp_emu.js',route=>route.fulfill({status:404,body:'missing engine'}))
+ await page.goto(`/project/${project.id}`)
+ await page.getByRole('button',{name:'Run',exact:true}).click()
+ await expect(page.getByRole('alert')).toContainText(/WASM|load|module|fetch/i,{timeout:45000})
+ await expect(page.getByRole('button',{name:'Stop',exact:true})).toHaveCount(0)
+})
