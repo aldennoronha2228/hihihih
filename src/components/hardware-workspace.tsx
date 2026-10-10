@@ -290,6 +290,12 @@ export function HardwareWorkspace({ chatSlot, children, onProjectChange, schemat
   }
   const dirty = !!project && source !== project.firmware.source
   const mutationDisabled = !!busy || !!results?.running || dirty
+  // Wire inspection is read-only, so it is not part of mutationDisabled - but while a
+  // simulation is running the wires belong to the run, not to the editor.
+  const wireInspectDisabled = !!results?.running
+  // Dragging only needs the circuit to be quiescent. Unsaved sketch edits (dirty) must not
+  // lock parts in place, so this deliberately ignores mutationDisabled's dirty term.
+  const dragDisabled = !!busy || !!results?.running
   const selectedPart = project?.components.find(part => part.id === selected)
   const selectedElement = useRef<HTMLDivElement | null>(null)
   const [selectedSize, setSelectedSize] = useState({ width: 0, height: 0 })
@@ -325,10 +331,13 @@ export function HardwareWorkspace({ chatSlot, children, onProjectChange, schemat
     top: selectedDisplay.y + Math.max(...selectedCorners.map(point => point.y)) + 12,
   }
   useEffect(() => {
-    if (mutationDisabled || activeView !== 'circuit') dragCleanup.current?.()
-  }, [mutationDisabled, activeView])
+    if (dragDisabled || activeView !== 'circuit') dragCleanup.current?.()
+  }, [dragDisabled, activeView])
+  useEffect(() => {
+    if (wireInspectDisabled) setWireDetails(null)
+  }, [wireInspectDisabled])
   const startPartDrag = (part: HardwareComponent, event: ReactPointerEvent<HTMLButtonElement>) => {
-    if (mutationDisabled || busyRef.current || event.button !== 0 || dragCleanup.current) return
+    if (dragDisabled || busyRef.current || event.button !== 0 || dragCleanup.current) return
     event.preventDefault()
     event.stopPropagation()
     setSelected(part.id)
@@ -492,7 +501,7 @@ export function HardwareWorkspace({ chatSlot, children, onProjectChange, schemat
             {!project.components.length && <p className="p-4 text-center text-xs text-neutral-400">Your canvas is empty. Describe your project and answer the questions; the agent will select and place the board after confirmation.</p>}
             {unresolvedWires.length > 0 && <p className="hw-notice" role="status">{unresolvedWires.length} connection(s) are saved but their component pin layout is not ready. {unresolvedWires.map(wire => `${wire.from.component}.${wire.from.pin} → ${wire.to.component}.${wire.to.pin}`).join('; ')}</p>}
             <div className="hw-canvas-viewport" ref={canvasViewport} aria-label="Circuit canvas"><div className="hw-canvas" style={{ width: 1000 * zoom, height: 650 * zoom }}><div className="hw-canvas-world" style={{ transform: `scale(${zoom})` }}>
-              <svg className="hw-wires" width="1000" height="650" aria-label="Circuit wires">{project.wires.map(wire => { const start = pinPosition(wire.from); const end = pinPosition(wire.to); if (!start || !end) return null; const path = roundedWirePath(start, end); return <g key={wire.id}><path d={path} stroke={wire.color} fill="none" strokeWidth={wireDetails?.id === wire.id ? 5 : 3} pointerEvents="none"/><path className="hw-wire-hit" d={path} stroke="transparent" fill="none" strokeWidth="14" tabIndex={0} role="button" aria-label={`Inspect wire ${wire.from.component}.${wire.from.pin} to ${wire.to.component}.${wire.to.pin}`} onClick={event => { event.stopPropagation(); setWireDetails({id:wire.id,x:(start.x+end.x)/2,y:(start.y+end.y)/2}) }} onKeyDown={event => { if(event.key==='Enter'||event.key===' '){event.preventDefault();setWireDetails({id:wire.id,x:(start.x+end.x)/2,y:(start.y+end.y)/2})} }}/>{wireDetails?.id === wire.id && [wire.from,wire.to].map((endpoint,index) => {const point=index===0?start:end;return <g key={index} pointerEvents="none"><circle cx={point.x} cy={point.y} r="8" fill="#0e1722" stroke="#c0e2ff" strokeWidth="2"/><circle cx={point.x} cy={point.y} r="3" fill={wire.color}/><rect x={point.x+12} y={point.y-20} width={Math.max(90,`${endpoint.component} · ${endpoint.pin}`.length*7)} height="22" rx="5" fill="#1c2d40" stroke="#7899bc"/><text x={point.x+18} y={point.y-5} fill="#e7f3ff" fontSize="11">{endpoint.component} · {endpoint.pin}</text></g>})}</g> })}</svg>
+              <svg className="hw-wires" width="1000" height="650" aria-label="Circuit wires">{project.wires.map(wire => { const start = pinPosition(wire.from); const end = pinPosition(wire.to); if (!start || !end) return null; const path = roundedWirePath(start, end); return <g key={wire.id}><path d={path} stroke={wire.color} fill="none" strokeWidth={wireDetails?.id === wire.id ? 5 : 3} pointerEvents="none"/><path className="hw-wire-hit" d={path} stroke="transparent" fill="none" strokeWidth="14" tabIndex={wireInspectDisabled ? -1 : 0} role="button" aria-disabled={wireInspectDisabled || undefined} aria-label={`Inspect wire ${wire.from.component}.${wire.from.pin} to ${wire.to.component}.${wire.to.pin}`} onClick={event => { event.stopPropagation(); if (wireInspectDisabled) return; setWireDetails({id:wire.id,x:(start.x+end.x)/2,y:(start.y+end.y)/2}) }} onKeyDown={event => { if(event.key==='Enter'||event.key===' '){event.preventDefault(); if (wireInspectDisabled) return; setWireDetails({id:wire.id,x:(start.x+end.x)/2,y:(start.y+end.y)/2})} }}/>{wireDetails?.id === wire.id && [wire.from,wire.to].map((endpoint,index) => {const point=index===0?start:end;return <g key={index} pointerEvents="none"><circle cx={point.x} cy={point.y} r="8" fill="#0e1722" stroke="#c0e2ff" strokeWidth="2"/><circle cx={point.x} cy={point.y} r="3" fill={wire.color}/><rect x={point.x+12} y={point.y-20} width={Math.max(90,`${endpoint.component} · ${endpoint.pin}`.length*7)} height="22" rx="5" fill="#1c2d40" stroke="#7899bc"/><text x={point.x+18} y={point.y-5} fill="#e7f3ff" fontSize="11">{endpoint.component} · {endpoint.pin}</text></g>})}</g> })}</svg>
               {wireDetails && project.wires.some(wire => wire.id === wireDetails.id) && <div className="hw-wire-details" role="dialog" aria-label="Wire connection details" style={{left:Math.min(730,Math.max(10,wireDetails.x)),top:Math.min(490,Math.max(35,wireDetails.y))}}><header><strong>Wire connection</strong><button aria-label="Close wire details" onClick={() => setWireDetails(null)}><X size={14}/></button></header>{project.wires.filter(wire=>wire.id===wireDetails.id).map(wire=><div key={wire.id}><p><small>From</small><strong>{wire.from.component}</strong><span>Pin {wire.from.pin}</span><button onClick={() => revealPin(wire.from)} aria-label={`Show ${wire.from.component} pin ${wire.from.pin}`}>Show pin</button></p><p><small>To</small><strong>{wire.to.component}</strong><span>Pin {wire.to.pin}</span><button onClick={() => revealPin(wire.to)} aria-label={`Show ${wire.to.component} pin ${wire.to.pin}`}>Show pin</button></p><small>{wire.id}</small></div>)}</div>}
               {project.components.map(part => <div key={part.id} ref={selected === part.id ? selectedElement : undefined} className={`hw-canvas-part ${selected === part.id ? 'selected' : ''}${dragPreview?.id === part.id ? ' is-dragging' : ''}`} style={{ left: displayedPart(part).x, top: displayedPart(part).y, transform: `rotate(${part.rotation}deg)` }} onClick={() => setSelected(part.id)}>
                 <button className="hw-part-handle" aria-label={`Select ${part.id}`} onPointerDown={event => startPartDrag(part, event)}>{part.id}</button>

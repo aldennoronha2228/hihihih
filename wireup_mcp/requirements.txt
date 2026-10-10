@@ -1,0 +1,5 @@
+# MCP server for WireUp. Pinned below 2.0: mcp 2.0.0 deleted
+# mcp.server.fastmcp, which wireup_server.py imports.
+mcp>=1.0.0,<2
+httpx>=0.27
+uvicorn>=0.30

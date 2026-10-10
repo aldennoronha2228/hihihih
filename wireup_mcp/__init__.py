@@ -1,0 +1,1 @@
+"""MCP integration for WireUp. Nothing here is imported by the WireUp backend."""
