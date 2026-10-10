@@ -1,6 +1,7 @@
 """Capability-backed preflight; not a general electrical safety certification."""
 import copy
 import json
+import re
 import time
 from uuid import uuid4
 from fastapi import HTTPException
@@ -30,10 +31,15 @@ def assess(service, project_id, plan):
     parts = plan.get('parts', [])
     if plan.get('requirements_text'):
         requested = str(plan['requirements_text']).lower()
-        proposed = ' '.join(str(part.get('type', '')) for part in parts if isinstance(part, dict)).lower()
+        requested = re.sub(r'\b(?:no|without|not using|do not use|don\'t use)\s+(?:an?\s+)?(?:oled|lcd|display|screen)\b', '', requested)
+        proposed_types = [str(part.get('type', '')) for part in parts if isinstance(part, dict)]
+        proposed = ' '.join(kind + ' ' + str(service.catalog.components.get(BOARD_ALIASES.get(kind.removeprefix('wokwi-'), kind.removeprefix('wokwi-')), {}).get('name', '')) for kind in proposed_types).lower()
         unresolved = []
         for label, words in {'joystick': ('joystick',), 'servo': ('servo',), 'display': ('oled', 'lcd', 'display'), 'sensor': ('dht', 'ultrasonic', 'temperature sensor')}.items():
-            if any(word in requested for word in words) and not any(word in proposed for word in words):
+            present = any(re.search(r'\b' + re.escape(word) + r'\b', requested) for word in words)
+            if label == 'display' and not any(re.search(r'\b' + word + r'\b', requested) for word in ('oled','lcd')):
+                present = bool(re.search(r'\b(?:physical|external|i2c|graphical)\s+(?:display|screen)\b|\b(?:add|include|use|attach|connect)\s+(?:an?\s+)?display\b', requested))
+            if present and not any(word in proposed for word in words):
                 unresolved.append(label)
         if unresolved:
             plan = {**plan, 'unresolved_requirements': unresolved}
@@ -75,7 +81,7 @@ def assess(service, project_id, plan):
             if not entry.get('pins'):
                 blocked = True
                 issue(kind+'_pins', 'Pins are not verified', f'We can show {entry.get("name", kind)}, but cannot connect it accurately yet.', 'Its connectable pins are missing from the verified catalog.', 'Revise the design to a part with verified pins; do not silently substitute.')
-            simulated = kind in (ANALOG_PARTS if board == 'none' else SIMULATED_PARTS) or kind == board or board in entry.get('simulation_boards', [])
+            simulated = kind in (ANALOG_PARTS if board == 'none' else SIMULATED_PARTS) or kind == board or board in entry.get('simulation_boards', []) or (board == 'none' and entry.get('spice_model') in ('resistor','capacitor','inductor') and entry.get('simulation_supported') is True)
             if not simulated:
                 issue(kind+'_runtime', 'Behavior is not simulated', f'We can place {entry.get("name",kind)}; the current runtime cannot verify its behavior.', 'A visible component is not the same as an implemented emulator model.')
             if kind == 'servo' or 'motor' in kind:

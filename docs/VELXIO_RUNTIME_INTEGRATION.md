@@ -2,6 +2,32 @@
 
 WireUp keeps the existing `HardwareRuntime`, CPU artifact loader, compiler, canvas, serial monitor and project ownership. It now attaches selected upstream `PartSimulationRegistry` handlers to the same existing AVRSimulator instance; no second CPU engine or circuit store owns the project.
 
+## WS2812 addressable outputs
+
+Uno now attaches the original SensorParts WS2812 decoder for the single NeoPixel, LED ring, and NeoPixel matrix. Real Adafruit NeoPixel library firmware sends GRB frames, and UART-controlled changes update the actual rendered output. The ring/matrix callbacks normalize original decoder byte values to the Wokwi element's 0–1 colour interface. Power/ground/DIN connections are validated. DOUT chaining, current limits, power budgets, other boards, and single-frame retention across late element replacement are not certified. Repeated firmware frames and stop/restart were verified.
+
+## Prototype input and colour display additions
+
+The original passive 4x4 membrane-keypad model is integrated on Uno with eight distinct D2–D13 GPIOs. Real raw-scanning firmware verifies all sixteen keys in both scan directions, release, held-key detach and stop/restart. It has no VCC/GND pins. Other matrix sizes and ghosting/diode variants are not claimed.
+
+ILI9341 uses the original write-only SPI RGB565 model through the existing local bus, including four display rotations and sharing MOSI/SCK with an OLED using separate chip-select pins. Tests use the installed Adafruit library. Supply/backlight must connect to 3.3V with ground. Read commands, touch and electrical reset-pad fidelity are not integrated.
+
+The ten-channel LED bar uses original GPIO subscriptions. Each used anode is validated through a series resistor and its matching cathode on ground. Real firmware toggles alternating ten-channel patterns and reattaches after stop/restart. It does not model LED currents.
+
+All three additions are advertised only for Uno. Broader motor drivers and relays require solved-net-to-model coupling; existing visual presence and pin maps do not establish that support.
+
+## KY-040 rotary encoder
+
+Uno and Nano now attach the original BasicParts encoder handler. Real compiled interrupt firmware counted clockwise/counterclockwise events and read the active-low switch. Connect CLK/DT/SW to distinct digital-capable GPIO plus 5V/GND. Browser-timer pulse spacing is a simplified interaction model, not mechanical contact physics. Pending pulse timers are cancelled on detach/stop. Mega failed the actual external-interrupt test and remains disabled in this adapter until its upstream interrupt map is fixed.
+
+## Rail-selected slide switch
+
+Uno/Nano/Mega now use the original BasicParts handler with pin 1 wired to GND, pin 3 wired to 5V and the common pin 2 wired to a digital GPIO. The handler only drives a level directly when both actual rail connections are verified. Firmware pull-up changes do not override that sourced input. Real compiled `digitalRead()` tests pass in both positions and across stop/restart. Other open-contact wiring modes, switch bounce and Pico integration remain unavailable.
+
+## Eight-position DIP switch
+
+Uno/Nano/Mega now attach the original BasicParts DIP handler with per-channel ground checks. Each used A-side pin connects to a distinct digital GPIO; its matching B-side pin connects to ground. Real firmware with INPUT_PULLUP reads HIGH when open and LOW when closed, independently across channels. Other wiring modes, contact bounce, and floating-input voltage behavior are not modeled. Lifecycle cleanup restores pull callbacks and removes event listeners.
+
 ## Implemented scope
 
 | Component | Reused upstream implementation | Required connections | Verified behavior |

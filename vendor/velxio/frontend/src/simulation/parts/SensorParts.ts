@@ -1029,7 +1029,7 @@ PartSimulationRegistry.register('led-ring', {
 
     const unsub = attachWs2812Part(simulator, pinDIN, (index, r, g, b) => {
       try {
-        el.setPixel(index, { r, g, b });
+        el.setPixel(index, { r: r / 255, g: g / 255, b: b / 255 });
       } catch (_) {
         // setPixel not yet available (element not upgraded) — ignore
       }
@@ -1053,7 +1053,7 @@ PartSimulationRegistry.register('neopixel-matrix', {
       const row = Math.floor(index / cols);
       const col = index % cols;
       try {
-        el.setPixel(row, col, { r, g, b });
+        el.setPixel(row, col, { r: r / 255, g: g / 255, b: b / 255 });
       } catch (_) {
         // ignore
       }

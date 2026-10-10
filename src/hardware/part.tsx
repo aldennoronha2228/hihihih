@@ -22,10 +22,14 @@ export function HardwarePart({ part, runtime, pinsChanged }: {
       if (!active || !host.current) return
       const alias = part.type === 'pi-pico' ? 'raspberry-pi-pico' : part.type === 'pi-pico-w' ? 'raspberry-pi-pico-w' : part.type
       const metadata = registry.getById(part.type) || registry.getById(alias)
-      if (!metadata || !customElements.get(metadata.tagName)) { setUnavailable(true); return }
-      current = document.createElement(metadata.tagName)
+      const espVariant = part.type === 'esp32-c3' ? 'esp32-c3' : part.type === 'esp32-s3' ? 'esp32-s3' : null
+      const tag = espVariant ? 'velxio-esp32' : part.type === 'pi-pico-w' ? 'velxio-pi-pico-w' : metadata?.tagName
+      if (!tag || !customElements.get(tag)) { setUnavailable(true); return }
+      setUnavailable(false)
+      current = document.createElement(tag)
+      if (espVariant) current.setAttribute('board-kind', espVariant)
       element.current = current
-      Object.assign(current, metadata.defaultValues, properties.current)
+      Object.assign(current, metadata?.defaultValues ?? {}, properties.current)
       host.current.replaceChildren(current)
       runtime?.registerElement(part.id, current)
       const read = () => {

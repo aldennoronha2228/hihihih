@@ -97,13 +97,21 @@ PartSimulationRegistry.register('slide-switch', {
     // Read initial value from element (0 or 1)
     const raw = (element as any).value;
     let state = raw === 1 || raw === '1';
-    if (arduinoPin !== null && !spiceDriven(avrSimulator)) avrSimulator.setPinState(arduinoPin, state);
+    const railDriven = getArduinoPinHelper('1') === -1 && getArduinoPinHelper('3') === -1;
+    if (arduinoPin !== null && (railDriven || !spiceDriven(avrSimulator))) avrSimulator.setPinState(arduinoPin, state);
     emitPropertyChange(componentId, 'value', state ? 1 : 0);
+    const manager = (avrSimulator as any).pinManager;
+    const previousPull = manager?.onPullChange;
+    const pullChanged = (pin: number, pull: number) => {
+      previousPull?.(pin, pull);
+      if (railDriven && pin === arduinoPin) avrSimulator.setPinState(pin, state);
+    };
+    if (railDriven && manager) manager.onPullChange = pullChanged;
 
     const onChange = () => {
       const v = (element as any).value;
       state = v === 1 || v === '1';
-      if (arduinoPin !== null && !spiceDriven(avrSimulator)) avrSimulator.setPinState(arduinoPin, state);
+      if (arduinoPin !== null && (railDriven || !spiceDriven(avrSimulator))) avrSimulator.setPinState(arduinoPin, state);
       emitPropertyChange(componentId, 'value', state ? 1 : 0);
     };
 
@@ -113,6 +121,7 @@ PartSimulationRegistry.register('slide-switch', {
     return () => {
       element.removeEventListener('change', onChange);
       element.removeEventListener('input', onChange);
+      if (manager?.onPullChange === pullChanged) manager.onPullChange = previousPull;
     };
   },
 });
@@ -129,18 +138,30 @@ PartSimulationRegistry.register('dip-switch-8', {
       pins.push(getArduinoPinHelper(`${i}A`) ?? getArduinoPinHelper(`${i}a`));
     }
 
-    // Sync initial states
+    const grounded = pins.map((_, index) => (getArduinoPinHelper(`${index + 1}B`) ?? getArduinoPinHelper(`${index + 1}b`)) === -1);
+    const manager = (avrSimulator as any).pinManager;
+    const drive = (pin: number, index: number, closed: boolean) => {
+      if (!grounded[index]) avrSimulator.setPinState(pin, closed);
+      else avrSimulator.setPinState(pin, closed ? false : manager?.getPinPull(pin) === 1);
+    };
     const values: number[] = (element as any).values || new Array(8).fill(0);
     pins.forEach((pin, i) => {
-      if (pin !== null) avrSimulator.setPinState(pin, values[i] === 1);
+      if (pin !== null) drive(pin, i, values[i] === 1);
     });
+    const previousPull = manager?.onPullChange;
+    const pullChanged = (pin: number, pull: number) => {
+      previousPull?.(pin, pull);
+      const index = pins.indexOf(pin);
+      if (index >= 0 && grounded[index]) drive(pin, index, ((element as any).values || values)[index] === 1);
+    };
+    if (grounded.some(Boolean) && manager) manager.onPullChange = pullChanged;
 
     const onChange = () => {
       const newValues: number[] = (element as any).values || new Array(8).fill(0);
       pins.forEach((pin, i) => {
         if (pin !== null) {
           const state = newValues[i] === 1;
-          avrSimulator.setPinState(pin, state);
+          drive(pin, i, state);
         }
       });
     };
@@ -150,6 +171,7 @@ PartSimulationRegistry.register('dip-switch-8', {
     return () => {
       element.removeEventListener('change', onChange);
       element.removeEventListener('input', onChange);
+      if (manager?.onPullChange === pullChanged) manager.onPullChange = previousPull;
     };
   },
 });
@@ -482,19 +504,24 @@ PartSimulationRegistry.register('ky-040', {
     if (pinCLK !== null) simulator.setPinState(pinCLK, true);
     if (pinDT !== null) simulator.setPinState(pinDT, true);
 
+    const timers = new Set<ReturnType<typeof setTimeout>>();
+    const schedule = (callback: () => void) => {
+      const timer = setTimeout(() => { timers.delete(timer); callback(); }, 1);
+      timers.add(timer);
+    };
     /** Emit one encoder pulse: set DT to dtLevel, pulse CLK HIGH→LOW. */
     function emitPulse(dtLevel: boolean) {
       if (pinDT !== null) simulator.setPinState(pinDT, dtLevel);
       if (pinCLK !== null) {
         simulator.setPinState(pinCLK, false); // CLK LOW first
         // Small delay then CLK rising edge (encoder sampled on rising edge)
-        setTimeout(() => {
+        schedule(() => {
           if (pinCLK !== null) simulator.setPinState(pinCLK, true);
-          setTimeout(() => {
+          schedule(() => {
             if (pinCLK !== null) simulator.setPinState(pinCLK, false);
             if (pinDT !== null) simulator.setPinState(pinDT, true); // restore DT
-          }, 1);
-        }, 1);
+          });
+        });
       }
     }
 
@@ -513,6 +540,8 @@ PartSimulationRegistry.register('ky-040', {
     element.addEventListener('button-release', onRelease);
 
     return () => {
+      timers.forEach(timer => clearTimeout(timer));
+      timers.clear();
       element.removeEventListener('rotate-cw', onCW);
       element.removeEventListener('rotate-ccw', onCCW);
       element.removeEventListener('button-press', onPress);

@@ -19,6 +19,7 @@ from langgraph.config import get_stream_writer
 from langgraph.errors import GraphRecursionError
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
+from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, create_model
 
 MAX_TOOL_CALLS = 60
@@ -48,7 +49,7 @@ exactly 10 project-specific multiple-choice requirements questions using ask_pro
 unless this request includes confirmed requirements. Questions must resolve actual
 uncertainty about requested behavior, components, timing, or runtime, respect the
 existing selected board, and avoid asking things the user already specified.
-Build on any board in the actual catalog, including ESP32 and Raspberry Pi Linux.
+For new projects, choose Arduino Uno/Nano/Mega or an existing ESP32 target only. Prefer ESP32-C3/S3 when simulation is requested; classic DevKit V1/C V4 need their unavailable native runtime. Keep all catalog components available for building, but disclose their board-specific simulation limitations.
 Unavailable simulation is informational, not a reason to refuse circuit/source generation.
 Say simulation is currently unavailable and omit runtime tools for those boards.
 For Raspberry Pi Linux write an appropriate Python application and setup instructions,
@@ -256,12 +257,12 @@ class _InvalidRequirements(ValueError):
 
 def _board_catalog():
     from backend.hardware import BOARD_CONFIG
-    return BOARD_CONFIG
+    return {kind: config for kind, config in BOARD_CONFIG.items() if kind.startswith(('arduino-', 'esp32'))}
 
 
 def _board_question(user_text):
     catalog = _board_catalog()
-    preferred = ['arduino-uno', 'arduino-nano', 'arduino-mega', 'pi-pico', 'esp32-devkit-v1']
+    preferred = ['arduino-uno', 'arduino-nano', 'arduino-mega', 'esp32-c3', 'esp32-s3']
     mentioned = sorted([key for key, item in catalog.items()
                         if re.search(r'(?<![\w-])' + re.escape(key) + r'(?![\w-])', user_text.lower())
                         or item['name'].lower() in user_text.lower()], key=len, reverse=True)
@@ -293,8 +294,8 @@ def _latest_user(history):
 
 
 def _build_intent(text):
-    if re.search(r'\b(?:do not|don\'t|never)\s+(?:build|create|wire|compile|modify|edit|run)\b', text, re.I):
-        return False
+    # Negated secondary actions must not cancel an affirmative build request.
+    text = re.sub(r'\b(?:do not|don\'t|never)\s+(?:build|create|wire|compile|modify|edit|run|replace)\b', '', text, flags=re.I)
     if re.search(r'^\s*(?:how (?:do|can|would)|explain|what (?:is|are)|tell me about)\b', text, re.I):
         return False
     return bool(re.search(r'\b(?:build|create|make|assemble|wire|connect|compile|generate|implement|add|edit|modify|replace|remove|run|start|blink|sweep)\b', text, re.I))
@@ -515,7 +516,7 @@ async def stream_agent(model, history, project_id=None, runtime_token=None, requ
                         if kind:
                             kind = BOARD_ALIASES.get(kind.removeprefix('wokwi-'), kind.removeprefix('wokwi-'))
                             component = catalog.get(kind)
-                            if not component or (kind not in BOARD_CONFIG and not component.get('pins')):
+                            if not component or (kind in BOARD_CONFIG and kind not in _board_catalog()) or (kind not in BOARD_CONFIG and not component.get('pins')):
                                 continue
                         compatible.append(option)
                     if not any(option['id'] == 'ai_choose' for option in compatible):
@@ -614,7 +615,12 @@ async def stream_agent(model, history, project_id=None, runtime_token=None, requ
         if name == 'calculator' and not project_id:
             result = await _calculator(args['expression'])
         else:
-            result = await _get_service().command(project_id, name, args, runtime_token=runtime_token)
+            try:
+                result = await _get_service().command(project_id, name, args, runtime_token=runtime_token)
+            except HTTPException as error:
+                if name == 'compile_firmware' and error.status_code == 503 and 'busy' in str(error.detail).lower():
+                    compile_attempts -= 1
+                raise
         result = _public(result)
         if name == 'wire_circuit' and isinstance(result, dict) and 'project' in result:
             project_revision = result['project']['revision']
@@ -913,7 +919,7 @@ async def stream_agent(model, history, project_id=None, runtime_token=None, requ
                 messages.append(SystemMessage(content='Actual Velxio starting reference (not evidence of current compilation or simulation): ' + json.dumps(reference, ensure_ascii=False) + '\nAdapt its verified pin mappings, current-limiting resistors, power/ground, and actual firmware to the user answers. Use the existing project tools to create parts/wires/source. Do not copy unsupported peripherals or blindly replace the requested board. Read another reference with get_example_reference when needed.'))
         if needs_questions and hasattr(_get_service(), 'catalog'):
             from backend.hardware import BOARD_CONFIG
-            supported = [{'id': kind, 'name': item.get('name', kind), 'simulation': BOARD_CONFIG.get(kind, {}).get('simulation')} for kind, item in _get_service().catalog.components.items() if kind in BOARD_CONFIG or item.get('pins')]
+            supported = [{'id': kind, 'name': item.get('name', kind), 'simulation': BOARD_CONFIG.get(kind, {}).get('simulation')} for kind, item in _get_service().catalog.components.items() if kind in _board_catalog() or (item.get('category') != 'boards' and item.get('pins'))]
             messages.append(SystemMessage(content='Device choices must come from this actual compatible catalog: ' + json.dumps(supported) + '. For every device option include component_type with the exact catalog ID. Do not offer a display/sensor with missing pins. Simulation-unavailable boards may still be built. If requested hardware is absent, clarify a supported alternative here, not in another confirmation later.'))
         if needs_questions:
             project = _get_service().get_project(project_id)

@@ -1,0 +1,25 @@
+import {expect,test} from '@playwright/test'
+for(const type of ['gas-sensor','flame-sensor','big-sound-sensor','small-sound-sensor'])test(`Uno ${type} original model injects real ADC`,async({page,request})=>{
+ test.setTimeout(150000)
+ await expect.poll(async()=>{try{return(await request.get('/api/health')).status()}catch{return 0}},{timeout:60000}).toBe(200)
+ const project=await(await request.post('/api/hardware/projects',{data:{name:type,board:'arduino-uno'}})).json()
+ const command=async(name:string,args:Record<string,unknown>)=>{const r=await request.post(`/api/hardware/project/${project.id}/command`,{data:{name,args}});expect(r.ok(),await r.text()).toBe(true);return r.json()}
+ const key=type==='gas-sensor'?'gasLevel':type==='flame-sensor'?'intensity':'soundLevel'
+ await command('add_component',{type,id:'sensor',properties:{[key]:256},x:430,y:150})
+ for(const [pin,target] of [['5V','VCC'],['GND','GND'],['A0','AOUT']])await command('connect_wire',{from:{component:'board',pin},to:{component:'sensor',pin:target}})
+ await command('generate_firmware',{source:'void setup(){Serial.begin(9600);}\nvoid loop(){Serial.println(analogRead(A0));delay(100);}'})
+ await page.goto(`/project/${project.id}`)
+ await command('compile_firmware',{})
+ await page.reload()
+ await expect(page.getByRole('button',{name:'Run',exact:true})).toBeEnabled({timeout:100000})
+ await page.getByRole('button',{name:'Run',exact:true}).click()
+ await page.getByRole('button',{name:'Serial monitor',exact:true}).click()
+ await expect(page.getByLabel('Serial output',{exact:true})).toContainText(type==='flame-sensor'?/\b76[0-9]\b/:/\b25[0-9]\b/,{timeout:15000})
+ await page.getByRole('button',{name:'Stop',exact:true}).click()
+ const next=await command('modify_component',{id:'sensor',properties:{[key]:768}})
+ await page.evaluate(project=>window.dispatchEvent(new CustomEvent('wireup:project-changed',{detail:{project}})),next)
+ await page.getByRole('button',{name:'Run',exact:true}).click()
+ await page.getByRole('button',{name:'Serial monitor',exact:true}).click()
+ await expect(page.getByLabel('Serial output',{exact:true})).toContainText(type==='flame-sensor'?/\b25[0-9]\b/:/\b76[0-9]\b/,{timeout:15000})
+ await page.getByRole('button',{name:'Stop',exact:true}).click()
+})

@@ -151,7 +151,11 @@ def test_gallery_blocked_examples_do_not_create_projects(client, hwservice):
     gallery = client.get('/api/hardware/samples/all').json()
     assert gallery['total'] == len(gallery['examples']) == 321
     assert {item['simulation_scope'] for item in gallery['examples']} == {'ready', 'partial', 'blocked'}
-    assert client.post('/api/hardware/samples/ky-040-rotary-encoder/open').status_code == 409
+    blocked = next(item for item in gallery['examples'] if item['id'] == 'mixed-and-transistor-driver')
+    assert blocked['simulation_scope'] == 'blocked'
+    assert not blocked['available']
+    assert blocked['blockers']
+    assert client.post(f'/api/hardware/samples/{blocked["id"]}/open').status_code == 409
     assert hwservice.list_projects()['projects'] == []
 
 

@@ -12,6 +12,7 @@ import { roundedWirePath } from '../hardware/wire-path'
 import './hardware-workspace.css'
 import { WorkspaceLoading } from './ui/workspace-loading'
 import { BoardFlashDialog } from './ui/board-flash-dialog'
+import { visibleForBuilding } from '../lib/simulation-catalog'
 import { EspNetworkDialog } from './ui/esp-network-dialog'
 
 type WorkspaceTab = 'circuit' | 'agent' | 'parts'
@@ -224,7 +225,7 @@ export function HardwareWorkspace({ chatSlot, children, onProjectChange, schemat
     const controller = new AbortController()
     const timer = setTimeout(() => {
       void hardwareApi.catalog(query, 200, { signal: controller.signal }).then(value => {
-        if (active) setCatalog([...value.components, ...value.boards].filter((part, index, all) => all.findIndex(other => catalogType(other) === catalogType(part)) === index))
+        if (active) setCatalog([...value.boards.map(board => ({...board,category:'boards'})), ...value.components].filter((part, index, all) => all.findIndex(other => catalogType(other) === catalogType(part)) === index).filter(part => !query.trim() || `${part.name} ${catalogType(part)}`.toLowerCase().includes(query.trim().toLowerCase())))
       }).catch(error => { if (active) setError(error.message) })
     }, 200)
     return () => { active = false; controller.abort(); clearTimeout(timer) }
@@ -402,7 +403,7 @@ export function HardwareWorkspace({ chatSlot, children, onProjectChange, schemat
     })
   }
   const agent = chatSlot ?? children
-  const visibleCatalog = catalog
+  const visibleCatalog = catalog.filter(item => visibleForBuilding(item, project?.board ?? 'unselected'))
   const categories = [...new Set(visibleCatalog.map(item => item.category ?? 'other'))].sort((a, b) => {
     const order = ['boards', 'input', 'output', 'sensors', 'displays', 'passive', 'analog', 'motors', 'communication', 'logic', 'other']
     return order.indexOf(a) - order.indexOf(b)
@@ -456,7 +457,7 @@ export function HardwareWorkspace({ chatSlot, children, onProjectChange, schemat
         <aside className="hw-sidebar hw-parts-panel">
           <div className="hw-panel-heading"><Cpu size={15} /> Components <span>{project.components.length}</span></div>
           <label className="hw-search"><Search size={14} /><input aria-label="Search components" placeholder="Search catalog…" value={query} onChange={event => setQuery(event.target.value)} /></label>
-          <div className="hw-catalog">{categories.map(category => <details className="hw-category" key={category} open><summary>{categoryNames[category] ?? category}<span>{visibleCatalog.filter(item => (item.category ?? 'other') === category).length}</span><ChevronDown size={12} /></summary><div className="hw-category-grid">{visibleCatalog.filter(item => (item.category ?? 'other') === category).map(item => <button key={catalogType(item)} className="hw-catalog-card" aria-label={`Add ${item.name} ${item.category ?? 'component'}`} title={item.description ?? item.name} disabled={mutationDisabled || (item.category === 'boards' && item.supported_board === false) || catalogType(item) === project.board} onClick={() => void perform('Adding component', async () => { const count = projectRef.current?.components.length ?? 0; await command('add_component', { type: catalogType(item), x: 380 + count % 3 * 110, y: 100 + Math.floor(count / 3) * 110 }, true) })}><CatalogThumbnail type={catalogType(item)} name={item.name} thumbnail={item.thumbnail} /><strong>{item.name}</strong><small>{item.category === 'boards' ? item.simulation === 'browser' ? 'Browser simulation' : item.compile ? 'Compile · emulator setup needed' : 'Placement · native runtime needed' : item.simulation_boards?.includes(project.board) ? 'Velxio peripheral simulation' : !catalogPins(item).length ? 'Placement only' : `${catalogPins(item).length} verified pins`}</small><Plus className="hw-card-add" size={12} /></button>)}</div></details>)}{!visibleCatalog.length && <p className="hw-catalog-empty">No components match your search.</p>}</div>
+          <div className="hw-catalog">{categories.map(category => <details className="hw-category" key={category} open><summary>{categoryNames[category] ?? category}<span>{visibleCatalog.filter(item => (item.category ?? 'other') === category).length}</span><ChevronDown size={12} /></summary><div className="hw-category-grid">{visibleCatalog.filter(item => (item.category ?? 'other') === category).map(item => <button key={catalogType(item)} className="hw-catalog-card" aria-label={`Add ${item.name} ${item.category ?? 'component'}`} title={item.description ?? item.name} disabled={mutationDisabled || (item.category === 'boards' && item.supported_board === false) || catalogType(item) === project.board} onClick={() => void perform('Adding component', async () => { const count = projectRef.current?.components.length ?? 0; await command('add_component', { type: catalogType(item), x: 380 + count % 3 * 110, y: 100 + Math.floor(count / 3) * 110 }, true) })}><CatalogThumbnail type={catalogType(item)} name={item.name} thumbnail={item.thumbnail} /><strong>{item.name}</strong><small>{item.category === 'boards' ? item.simulation === 'browser' ? 'Browser simulation' : item.compile ? 'Compile · emulator setup needed' : 'Placement · native runtime needed' : item.simulation_boards?.includes(project.board) ? 'Velxio peripheral simulation' : item.spice_model ? 'Electrical model · DC / transient' : !catalogPins(item).length ? 'Placement only' : `${catalogPins(item).length} verified pins · simulation not integrated`}</small><Plus className="hw-card-add" size={12} /></button>)}</div></details>)}{!visibleCatalog.length && <p className="hw-catalog-empty">No components match this search.</p>}</div>
           <div className="hw-panel-heading">In this circuit</div>
           <div className="hw-component-list">{project.components.map(part => <button key={part.id} className={selected === part.id ? 'active' : ''} onClick={() => setSelected(part.id)}><Cpu size={14} /><span>{part.id}<small>{part.type}</small></span></button>)}</div>
           {selectedPart && <section className="hw-inspector"><div className="hw-panel-heading">Properties <button aria-label={`Remove ${selectedPart.id}`} disabled={mutationDisabled || selectedPart.id === 'board'} onClick={() => void perform('Removing component', async () => { await command('remove_component', { id: selectedPart.id }, true); setSelected('') })}><Trash2 size={13} /></button></div>

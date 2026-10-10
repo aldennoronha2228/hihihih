@@ -16,18 +16,21 @@ class RuntimeTokenFilter(logging.Filter):
         return True
 
 
+def compiler_loop():
+    # Windows compiler subprocesses require a Proactor loop.
+    if sys.platform == 'win32':
+        return asyncio.ProactorEventLoop()
+    return asyncio.new_event_loop()
+
+
 def main():
     load_dotenv(Path(__file__).resolve().parents[1] / '.env')
     # WebSocket connection messages use uvicorn.error, not uvicorn.access.
     logging.getLogger('uvicorn.error').addFilter(RuntimeTokenFilter())
     windows = sys.platform == 'win32'
-    if windows:
-        # ProactorEventLoop is required on Windows to launch compiler subprocesses.
-        asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
-    # Windows: disable reload (Watchfiles uses a Selector loop internally) and
-    # pass loop='none' so uvicorn inherits the ProactorEventLoop set above.
+    # Watchfiles uses a Selector loop on Windows, so reload must remain disabled.
     uvicorn.run('backend.app:app', host='127.0.0.1', port=int(os.getenv('BACKEND_PORT', '8000')),
-                loop='none' if windows else 'auto', reload=not windows,
+                loop='backend.run:compiler_loop' if windows else 'auto', reload=not windows,
                 reload_dirs=None if windows else ['backend'], access_log=False)
 
 

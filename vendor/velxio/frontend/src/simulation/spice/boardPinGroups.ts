@@ -47,7 +47,7 @@ const STM32_GROUP: BoardPinGroup = {
   vcc_pins: ['3V3', '3V3.1', '3V3.2', '5V', 'VBAT', 'VB'],
 };
 
-export const BOARD_PIN_GROUPS: Record<AllBoardKinds, BoardPinGroup> = {
+export const BOARD_PIN_GROUPS: Partial<Record<AllBoardKinds, BoardPinGroup>> & { default: BoardPinGroup } = {
   default: { vcc: 5, gnd: ['GND', 'GND.1', 'GND.2'], vcc_pins: ['5V', 'VCC'] },
 
   // AREF stays on the main 5 V rail — it is VCC-referenced by default.

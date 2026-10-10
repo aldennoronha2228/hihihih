@@ -21,7 +21,7 @@ export type HardwareProject = {
 export type HardwareProjectSummary = Pick<HardwareProject, 'id' | 'name' | 'board' | 'revision' | 'created_at' | 'updated_at'>
 export type CatalogComponent = {
   id?: string; type?: string; name: string; category?: string; description?: string; thumbnail?: string; tagName?: string
-  pins?: (string | HardwarePin)[]; connectable?: boolean; simulation_supported?: boolean; simulation_boards?: string[]; simulation_scope?: string
+  pins?: (string | HardwarePin)[]; connectable?: boolean; simulation_supported?: boolean; simulation_boards?: string[]; simulation_scope?: string; spice_model?: string
   properties?: unknown; defaultValues?: Record<string, unknown>; supported_board?: boolean; schematic_only?: boolean; compile?: boolean; compile_timeout_seconds?: number; simulation?: string; unavailable_reason?: string
 }
 export type HardwareCommand =

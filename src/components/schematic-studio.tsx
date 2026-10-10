@@ -4,6 +4,7 @@ import type { CatalogComponent, HardwareProject, WireEndpoint } from '../lib/har
 import { catalogPins } from '../lib/hardware'
 import type { HardwareRuntime, RuntimeResults } from '../hardware/runtime'
 import { sourceCatalog } from '../hardware/spice'
+import { visibleForBuilding } from '../lib/simulation-catalog'
 import type { AnalogSolveResult } from '../hardware/spice'
 import { SchematicCanvas, SchematicSymbolPreview } from './schematic-canvas'
 import { HardwareInstruments } from './hardware-instruments'
@@ -85,7 +86,7 @@ export function SchematicStudio({ project, catalog, analog, solving, onSolve, on
   }
   const exportBom = () => downloadText(`${project.name.slice(0, 40) || 'schematic'}-bom.csv`, buildBomCsv(project, catalog))
   const libraryGroups = useMemo(() => {
-    const items = catalog.filter(item => `${item.name} ${item.type}`.toLowerCase().includes(query.toLowerCase()))
+    const items = catalog.filter(item => visibleForBuilding(item, project.board)).filter(item => `${item.name} ${item.type}`.toLowerCase().includes(query.toLowerCase()))
     const groups = new Map<string, CatalogComponent[]>()
     for (const item of items) {
       const category = item.category ?? 'other'
@@ -93,7 +94,7 @@ export function SchematicStudio({ project, catalog, analog, solving, onSolve, on
       groups.get(category)!.push(item)
     }
     return [...groups.entries()].sort((a, b) => categoryOrder.indexOf(a[0]) - categoryOrder.indexOf(b[0]))
-  }, [catalog, query])
+  }, [catalog, query, project.board])
   const curatedParts = project.components.filter(component => `${component.id} ${component.type}`.toLowerCase().includes(query.toLowerCase()))
 
   return <div className="schematic-studio">

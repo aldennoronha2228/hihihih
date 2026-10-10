@@ -1,0 +1,15 @@
+import {expect,test} from '@playwright/test'
+for(const width of [1440,390])test(`building catalog keeps all components and limits new boards at ${width}px`,async({page,request})=>{
+ const project=await(await request.post('/api/hardware/projects',{data:{name:'Build catalog',board:'arduino-uno'}})).json()
+ await page.setViewportSize({width,height:900});await page.goto(`/project/${project.id}`)
+ if(width<900)await page.getByRole('button',{name:'Parts',exact:true}).click()
+ const search=page.getByRole('textbox',{name:'Search components',exact:true})
+ await search.fill('stepper');await expect(page.locator('.hw-catalog-card')).not.toHaveCount(0,{timeout:10000})
+ await search.fill('Raspberry');await expect(page.locator('.hw-catalog')).toContainText('No components',{timeout:10000})
+ await search.fill('ESP32');await expect(page.locator('.hw-catalog')).toContainText('DevKit V1',{timeout:10000});await expect(page.locator('.hw-catalog')).toContainText('Browser simulation')
+ if(width<900)await page.getByRole('button',{name:'Canvas',exact:true}).click()
+ await page.getByRole('tab',{name:'Schematic',exact:true}).click()
+ const library=page.getByRole('complementary',{name:'Symbol library'})
+ await expect(library).toContainText('Stepper Motor')
+ await expect(library).not.toContainText('Raspberry Pi')
+})

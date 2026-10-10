@@ -1,4 +1,6 @@
 import { buildNetlist } from './spice-netlist.js'
+import { PASSIVE_PRESETS } from '@velxio/simulation/spice/componentToSpice'
+import catalogMetadata from '../../vendor/velxio/frontend/public/components-metadata.json'
 import { NgSpiceWorkerAdapter } from '@velxio/simulation/spice/adapters/NgSpiceWorkerAdapter'
 import { NgSpiceInteractive } from '@velxio/simulation/spice/wasm/NgSpiceInteractive'
 import type { ComponentForSpice, WireForSpice } from '@velxio/simulation/spice/types'
@@ -63,11 +65,19 @@ const sourceAliases: Record<string, string> = {
   'pulse-source': 'source-pulse-voltage', 'pwl-source': 'source-pwl-voltage', 'ac-source': 'source-ac-voltage',
 }
 const legacyPins: Record<string, string[]> = { 'analog-resistor': ['A', 'B'], 'analog-capacitor': ['A', 'B'], 'analog-inductor': ['A', 'B'], 'resistor-us': ['1', '2'], 'capacitor-electrolytic': ['+', '−'] }
-const passiveTypes = new Set(['resistor', 'capacitor', 'inductor', ...Object.keys(legacyPins)])
+const passiveKind = (type: string) => PASSIVE_PRESETS[type] ?? type
+const passiveTypes = new Set(['resistor', 'capacitor', 'inductor', ...Object.keys(legacyPins), ...Object.keys(PASSIVE_PRESETS)])
+type PassiveMetadata = {
+  id: string; defaultValues: Record<string, unknown>
+  properties: { name: string; type: string; options?: unknown[] }[]
+}
+const passiveMetadata = new Map((catalogMetadata.components as PassiveMetadata[])
+  .filter(entry => passiveTypes.has(entry.id)).map(entry => [entry.id, entry]))
 const sourceKind = (type: string) => sourceAliases[type] ?? type
 
 export function analogPins(component: Pick<HardwareComponent, 'type'>): string[] {
-  return catalogByType.get(sourceKind(component.type))?.pins ?? legacyPins[component.type] ?? []
+  const type = passiveKind(component.type)
+  return catalogByType.get(sourceKind(type))?.pins ?? legacyPins[type] ?? []
 }
 
 export class AnalogValidationError extends Error {
@@ -187,17 +197,26 @@ export function buildAnalogNetlist(project: HardwareProject, options: AnalogSolv
     }
     if (passiveTypes.has(component.type)) {
       try {
-        const fallback = /resistor/.test(component.type) ? '1000' : /capacitor/.test(component.type) ? '1u' : '1m'
+        const kind = passiveKind(component.type)
+        const metadata = passiveMetadata.get(component.type)
+        const fallback = metadata?.defaultValues.value ?? (/resistor/.test(kind) ? '1000' : /capacitor/.test(kind) ? '1u' : '1m')
         const raw = properties.value === undefined ? fallback : properties.value
-        if (canonicalDefinition && (typeof raw !== 'string' || raw.length > 48 || !new RegExp(passivePattern).test(raw))) throw new Error(`${component.id}.value must be a strict positive SPICE string, at most 48 characters.`)
+        if ((canonicalDefinition || metadata) && (typeof raw !== 'string' || raw.length > 48 || !new RegExp(passivePattern).test(raw))) throw new Error(`${component.id}.value must be a strict positive SPICE string, at most 48 characters.`)
+        if (metadata) {
+          for (const [key, supplied] of Object.entries(properties)) {
+            const descriptor = metadata.properties.find(field => field.name === key)
+            if (!descriptor) throw new Error(`${component.id}: unknown property ${key}.`)
+            if (typeof supplied !== descriptor.type || (descriptor.options && !descriptor.options.includes(supplied))) throw new Error(`${component.id}.${key} must match its catalog type and allowed values.`)
+          }
+        }
         const value = numeric(component, 'value', fallback, 0, true)
-        const min = /resistor/.test(component.type) ? 1e-6 : 1e-15, max = /resistor/.test(component.type) ? 1e12 : 1e6
+        const min = /resistor/.test(kind) ? 1e-6 : 1e-15, max = /resistor/.test(kind) ? 1e12 : 1e6
         if (value < min || value > max) throw new Error(`${component.id}.value must evaluate between ${min} and ${max}.`)
-        properties = { ...properties, value }
+        properties = { ...metadata?.defaultValues, ...properties, value }
       } catch (error) { fail((error as Error).message, component.id) }
     }
     // Instrument-prefixed placeholders prevent implicit VCC/GND source canonicalization.
-    converted.push({ id, metadataId: passiveTypes.has(component.type) || component.type === 'ground' ? component.type : 'instr-analog-source', properties })
+    converted.push({ id, metadataId: passiveTypes.has(component.type) ? passiveKind(component.type) : component.type === 'ground' ? 'ground' : 'instr-analog-source', properties })
   }
   if (![...supported.values()].some(component => component.type !== 'ground')) fail('Add a supported analog source or passive before solving.')
   const wires: WireForSpice[] = []

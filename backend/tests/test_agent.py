@@ -632,11 +632,11 @@ def test_injected_timeout_bound_cancels_model(service, monkeypatch):
 def test_empty_project_injects_first_canonical_board_question(service):
     service.board = 'unselected'
     model = FakeModel([[tool('ask_project_questions', questionnaire())]])
-    events = collect(model, project_id='current', history=[HumanMessage(content='Build a pi-pico-w circuit')])
+    events = collect(model, project_id='current', history=[HumanMessage(content='Build a esp32-s3 circuit')])
     questions = next(event['questions'] for event in events if event['type'] == 'questions')
     assert questions[0]['id'] == 'board'
     options = questions[0]['options']
-    assert options[0]['id'] == 'pi-pico-w'
+    assert options[0]['id'] == 'esp32-s3'
     assert len(options) <= 6
     assert all(option['id'] in agent._board_catalog() or option['id'] == 'none' for option in options)
     assert any(option['id'] == 'none' for option in options)
@@ -695,13 +695,13 @@ def test_invalid_confirmed_board_is_rejected_before_model(service, board_key):
 
 def test_confirmed_board_is_placed_after_assessment_with_regular_events(service):
     service.board = 'unselected'
-    model = FakeModel([[tool('read_project', {}, 'read')], [assessment(board='pi-pico-w', parts=())],
-                       [tool('add_component', {'type': 'pi-pico-w'}, 'board')],
+    model = FakeModel([[tool('read_project', {}, 'read')], [assessment(board='esp32-s3', parts=())],
+                       [tool('add_component', {'type': 'esp32-s3'}, 'board')],
                        [AIMessageChunk(content='Selected Pico W; runtime remains unavailable.')]])
-    events = collect(model, project_id='current', requirements={'board': 'pi-pico-w'},
+    events = collect(model, project_id='current', requirements={'board': 'esp32-s3'},
                      history=[HumanMessage(content='Build this circuit')])
     assert [call[1] for call in service.calls] == ['read_project', 'add_component', 'read_project', 'validate_circuit']
-    assert service.calls[1][2] == {'type': 'pi-pico-w', 'expected_revision': 4}
+    assert service.calls[1][2] == {'type': 'esp32-s3', 'expected_revision': 4}
     starts = [event for event in events if event['type'] == 'step_start']
     ends = [event for event in events if event['type'] == 'step_end']
     assert len(starts) == len(ends) == 5
@@ -736,9 +736,9 @@ def test_no_board_is_added_without_a_confirmed_board_key(service, board_key):
 
 
 def test_existing_board_is_not_automatically_replaced_by_confirmation(service):
-    model = FakeModel([[tool('read_project', {}, 'read')], [assessment(board='pi-pico', parts=('arduino-uno', 'led'))],
+    model = FakeModel([[tool('read_project', {}, 'read')], [assessment(board='esp32-c3', parts=('arduino-uno', 'led'))],
                        [tool('add_component', {'type': 'led'}, 'add')], [AIMessageChunk(content='Added LED.')]])
-    events = collect(model, project_id='current', requirements={'board': 'pi-pico'},
+    events = collect(model, project_id='current', requirements={'board': 'esp32-c3'},
                      history=[HumanMessage(content='Build an LED circuit')])
     assert [call[2]['type'] for call in service.calls if call[1] == 'add_component'] == ['led']
     assert service.board == 'arduino-uno'
@@ -785,15 +785,15 @@ def test_board_placement_replans_preflight_batched_mutations_for_new_revision(se
         {'name': 'read_project', 'args': '{}', 'id': 'read', 'index': 0},
         {'name': 'add_component', 'args': '{"type":"led","expected_revision":4}', 'id': 'led', 'index': 1},
     ])
-    model = FakeModel([[batched], [assessment(board='pi-pico')],
-                       [tool('add_component', {'type': 'pi-pico'}, 'board')],
+    model = FakeModel([[batched], [assessment(board='esp32-c3')],
+                       [tool('add_component', {'type': 'esp32-c3'}, 'board')],
                        [tool('add_component', {'type': 'led'}, 'replanned-led')],
                        [AIMessageChunk(content='Board and LED selected.')]])
-    events = collect(model, project_id='current', requirements={'board': 'pi-pico'},
+    events = collect(model, project_id='current', requirements={'board': 'esp32-c3'},
                      history=[HumanMessage(content='Build this circuit')])
     assert [call[1] for call in service.calls] == ['read_project', 'add_component', 'add_component', 'read_project', 'validate_circuit']
     placements = [call[2] for call in service.calls if call[1] == 'add_component']
-    assert placements == [{'type': 'pi-pico', 'expected_revision': 4}, {'type': 'led', 'expected_revision': 5}]
+    assert placements == [{'type': 'esp32-c3', 'expected_revision': 4}, {'type': 'led', 'expected_revision': 5}]
     feedback = [message for message in model.histories[1] if isinstance(message, ToolMessage)]
     assert {message.tool_call_id for message in feedback} >= {'read', 'led'}
     assert next(message for message in feedback if message.tool_call_id == 'led').status == 'error'

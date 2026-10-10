@@ -232,9 +232,10 @@ export class HardwareRuntime {
     if (this.elements.get(id) === element) return
     const simulator = this.simulator
     const part = this.project?.components.find(part => part.id === id)
-    // Upstream leases cannot cancel an echo already queued on the CPU.
-    if (this.elements.has(id) && (part?.type === 'hc-sr04' || part?.type === 'dht22') && simulator instanceof AVRSimulator
-      && simulator.isRunning() && Number.isFinite(simulator.lineHub().cyclesUntilNextEdge(simulator.getCurrentCycles()))) this.stop()
+    // Upstream leases cannot cancel edges already queued or release a held matrix pad.
+    if (this.elements.has(id) && simulator instanceof AVRSimulator && simulator.isRunning()
+      && (part?.type === 'membrane-keypad' || ((part?.type === 'hc-sr04' || part?.type === 'dht22')
+        && Number.isFinite(simulator.lineHub().cyclesUntilNextEdge(simulator.getCurrentCycles()))))) this.stop()
     this.peripheralParts?.release(id)
     this.inputCleanups.get(id)?.()
     this.inputCleanups.delete(id)
@@ -265,6 +266,8 @@ export class HardwareRuntime {
 
   updateComponentProperties(id: string, properties: Record<string, unknown>) {
     const element = this.elements.get(id)
+    if (this.project?.components.find(part => part.id === id)?.type === 'membrane-keypad'
+      && String(properties.columns ?? '4') !== String((element as HTMLElement & { columns?: string } | undefined)?.columns ?? '4')) this.stop()
     if (element) Object.assign(element, properties)
     this.peripheralParts?.update(id, properties, element)
   }
@@ -511,7 +514,10 @@ export class HardwareRuntime {
         'LEDs and rail-connected pushbuttons retain digital behavior. The scoped Uno/Nano/Mega adapter reuses upstream rotary and slide potentiometer ADC, servo pulse decoding and HC-SR04 timed echo behavior only with valid board-specific signals and the selected board’s 5V/ground wiring. Nano A6/A7 accept potentiometer ADC input only. Common-cathode RGB digital/PWM channels and DHT22 temperature/humidity are connected through the original upstream models. Common-anode RGB and these Pico peripheral paths are not enabled.',
         ...(pico ? ['The Pico/Pico W adapter is limited to upstream rotary and slide potentiometer ADC input on external GP26–GP28 with the selected board’s 3V3/ground wiring. GP29, servo and HC-SR04 are not enabled. Rotary potentiometer behavior is verified with real Pico/Pico W firmware; slider behavior is verified on Uno only.'] : []),
         'Photoresistor AO and NTC OUT reuse the original upstream voltage-generating models on Uno A0–A5 only, with VCC on Uno 5V and GND on its ground net. Controls are lux (0–1000, default 500) and temperature in Celsius (−40–125, default 25). Photoresistor DO only observes GPIO for its indicator; no comparator output or physical light curve is modeled.',
-        'PIR reuses the original upstream digital model on Uno only: VCC requires 5V, GND requires ground and OUT requires a digital-capable GPIO. Click or trigger: true starts/restarts a three-second browser-wall-clock HIGH pulse; it is not timed in guest cycles. Slide switches and other catalog components are not enabled by this sensor integration.',
+        'Gas, flame, big-sound-sensor and small-sound-sensor reuse the original upstream ADC handlers on Uno only: VCC requires 5V, GND requires ground and AOUT requires A0–A5. Original control keys are gasLevel (0–1023, default 100), intensity (0–1023, default 0) and soundLevel (0–1023, default 512). Gas and sound map linearly to 0–5V; flame intensity maps inversely from 5V to 0V. DOUT only observes GPIO for the indicator; no threshold/comparator output, calibrated concentration or microphone waveform is generated. The elements have no built-in value control; absent properties use these defaults.',
+        'Analog joystick reuses the original upstream Uno handler with VCC on 5V, GND on ground and VERT/HORZ on distinct A0–A5 pins. Optional SEL must use a separate digital-capable GPIO; button events drive active-low input. Element xValue/yValue directions (−1–1) map to 0–5V, default center 2.5V; original panel xAxis/yAxis controls (−512–512) use the upstream (axis + 512)/1023 scaling. Other boards and buzzer/audio integration are not enabled by this batch.',
+        'PIR reuses the original upstream digital model on Uno only: VCC requires 5V, GND requires ground and OUT requires a digital-capable GPIO. Click or trigger: true starts/restarts a three-second browser-wall-clock HIGH pulse; it is not timed in guest cycles. Slide switches use the original rail-selected digital handler on Uno/Nano/Mega: pin 1 requires ground, pin 3 requires 5V and pin 2 requires a digital-capable GPIO. Open contacts and contact bounce are not modeled.',
+        'The passive 4×4 membrane keypad reuses the original upstream matrix-keypad line engine on Uno only. R1–R4 and C1–C4 require eight distinct D2–D13 GPIOs (D0/D1 reserved for Serial), with no VCC/GND. Guest-cycle pad changes support row-first and column-first scanning with INPUT_PULLUP and released inactive outputs. The matrix model includes ghosting; contact bounce and electrical current are not modeled. Removing/replacing the element or changing its column count stops the runtime to clear queued edges and held pads.',
         'SSD1306 OLED, I2C LCD1602/LCD2004, MPU6050, DS1307 and DS3231 use their original upstream I2C models and scoped bus fabric on Uno A4/A5 only. VCC/VIN accepts Uno 3V3 or 5V; the 8-pin 3V3 pad requires Uno 3V3. Other boards and unwired displays are not enabled.',
         'Only the 8-pin SSD1306 SPI path is enabled, using the original upstream model and existing Uno AVR SPI controller: CLK/SCK requires D13, DATA/MOSI requires D11, and CS/DC require distinct GPIOs. Protocol is selected by the actual protocol property or, when absent, a GPIO-connected CS. RST is optional and must use a separate GPIO when wired; the upstream SPI model does not emulate the RST pad. SD and MFRC522 SPI integration remain deferred.',
         ...supportWarnings,

@@ -1,0 +1,15 @@
+import {expect,test} from '@playwright/test'
+for(const board of ['esp32-c3','esp32-s3'])for(const width of [1440,390])test(`${board} real 2D element and wires render at ${width}px`,async({page,request})=>{
+ const project=await(await request.post('/api/hardware/projects',{data:{name:'ESP board rendering',board}})).json()
+ await request.post(`/api/hardware/project/${project.id}/command`,{data:{name:'add_component',args:{type:'led',id:'led',x:420,y:150}}})
+ await request.post(`/api/hardware/project/${project.id}/command`,{data:{name:'connect_wire',args:{from:{component:'board',pin:'2'},to:{component:'led',pin:'A'}}}})
+ await page.setViewportSize({width,height:900});await page.goto(`/project/${project.id}`)
+ const element=page.locator(`velxio-esp32[board-kind="${board}"]`)
+ await expect(element).toBeVisible({timeout:30000})
+ await expect(page.getByText('Element unavailable',{exact:false})).toHaveCount(0)
+ await expect(page.getByRole('button',{name:'Connect board pin 2',exact:true})).toBeAttached()
+ await expect(page.locator('.hw-wires g')).not.toHaveCount(0)
+ expect(await element.evaluate(el=>el.shadowRoot?.querySelector('img')?.getAttribute('src'))).toBe(`/boards/${board}.svg`)
+ const wire=page.getByRole('button',{name:'Inspect wire board.2 to led.A',exact:true});await wire.focus();await wire.press('Enter')
+ await expect(page.getByRole('dialog',{name:'Wire connection details'})).toContainText('Pin 2')
+})

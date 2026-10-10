@@ -144,6 +144,41 @@ PIN_ALIASES = {
                         '16': 'RX2', '17': 'TX2', '1': 'TX0', '3': 'RX0', '36': 'VP', '39': 'VN',
                         'GND': 'GND.1'},
 }
+
+
+def load_component_pins(path=None):
+    path = Path(path) if path else ROOT / 'backend/catalog/component-pins.json'
+    if not path.is_file():
+        return {}
+    data = json.loads(path.read_text(encoding='utf-8'))
+    if data.get('schema_version') != 1 or not isinstance(data.get('components'), dict):
+        raise ValueError('Invalid component pin catalog schema.')
+    verified = {}
+    for kind, record in data['components'].items():
+        if not isinstance(record, dict) or record.get('defined') is not True or record.get('status') != 'verified':
+            continue
+        pins = record.get('pins')
+        if not isinstance(pins, list) or not pins or record.get('pinCount') != len(pins):
+            continue
+        if any(not isinstance(pin, dict) or not isinstance(pin.get('name'), str) or not pin['name']
+               or any(type(pin.get(axis)) not in (int, float) or not math.isfinite(pin[axis]) for axis in ('x', 'y'))
+               for pin in pins):
+            continue
+        names = [pin['name'] for pin in pins]
+        if len(set(names)) != len(names):
+            continue
+        verified[kind] = record
+    return verified
+
+
+EXPLICIT_PIN_LAYOUTS = frozenset(PIN_LAYOUTS)
+COMPONENT_PINS = load_component_pins()
+# Explicit layouts retain runtime pin names and board aliases.
+for _kind, _record in COMPONENT_PINS.items():
+    if not PIN_LAYOUTS.get(_kind):
+        PIN_LAYOUTS[_kind] = [pin['name'] for pin in _record['pins']]
+
+
 DEFAULT_BOARD_SOURCES = {
     'esp32-devkit-c-v4': 'void setup() {\n  Serial.begin(115200);\n}\n\nvoid loop() {\n  delay(500);\n}\n',
 }
@@ -341,6 +376,12 @@ class ComponentCatalog:
             if item['id'] in BOARD_ALIASES:
                 continue
             entry = copy.deepcopy(item)
+            from backend.sensor_controls import add_sensor_controls
+            add_sensor_controls(entry)
+            if 'preset' in entry.get('tags', []) and entry.get('tagName') in ('wokwi-resistor','wokwi-capacitor','velxio-capacitor-electrolytic','wokwi-inductor'):
+                entry['simulation_supported'] = True
+                entry['simulation_scope'] = 'Existing ngspice passive model for DC/transient electrical analysis; not a digital MCU peripheral.'
+                entry['spice_model'] = 'resistor' if entry['tagName'] == 'wokwi-resistor' else 'inductor' if entry['tagName'] == 'wokwi-inductor' else 'capacitor'
             # Generated decorators sometimes label numeric and boolean defaults as strings.
             for descriptor in entry.get('properties', []):
                 default = descriptor.get('defaultValue')
@@ -372,14 +413,50 @@ class ComponentCatalog:
                     entry.setdefault('defaultValues', {})[name] = default
                     if not any(prop['name'] == name for prop in entry.setdefault('properties', [])):
                         entry['properties'].append({'name': name, 'type': 'number', 'min': minimum, 'max': maximum, 'defaultValue': default, 'control': 'range'})
+            if item['id'] in ('neopixel', 'led-ring', 'neopixel-matrix'):
+                entry['simulation_boards'] = ['arduino-uno']
+                entry['simulation_scope'] = 'Original WS2812 pulse decoder with 5V/ground and Uno DIN GPIO; direct single/ring/matrix frames. DOUT chaining and power/current analysis are not implemented.'
+            if item['id'] in ('membrane-keypad', 'ili9341', 'led-bar-graph'):
+                entry['simulation_boards'] = ['arduino-uno']
+                entry['simulation_scope'] = {
+                    'membrane-keypad': 'Original passive 4x4 matrix model; eight distinct Uno D2-D13 GPIOs. No extra supply pins. Other column counts are unavailable.',
+                    'ili9341': 'Original write-only SPI RGB565 display model with rotation; Uno MOSI11/SCK13 and distinct CS/D-C, 3.3V supply/backlight. Readback, touch and RST electrical behavior are not modeled.',
+                    'led-bar-graph': 'Original ten-channel digital indicator; every used anode requires a distinct GPIO through a current-limiting resistor and its cathode to ground. No analog-current model.',
+                }[item['id']]
+            if item['id'] == 'dip-switch-8':
+                entry['simulation_boards'] = ['arduino-uno', 'arduino-nano', 'arduino-mega']
+                entry['simulation_scope'] = 'Independent grounded contacts: each used A pin to a distinct AVR GPIO and matching B pin to GND, with INPUT_PULLUP firmware. Contact bounce and other wiring modes are not modeled.'
+            if item['id'] == 'slide-switch':
+                entry['simulation_boards'] = ['arduino-uno', 'arduino-nano', 'arduino-mega']
+                entry['simulation_scope'] = 'Rail-selected digital input: pin 1 to GND, pin 3 to 5V, pin 2 to a digital GPIO. Open-contact modes and contact bounce are not modeled.'
+            if item['id'] == 'ky-040':
+                entry['simulation_boards'] = ['arduino-uno', 'arduino-nano']
+                entry['simulation_scope'] = 'Original rotary encoder digital pulses and active-low switch; requires distinct CLK/DT/SW GPIO and 5V/GND. Pulse spacing uses browser timers, not mechanical contact physics.'
+            if item['id'] == 'analog-joystick':
+                entry['simulation_boards'] = ['arduino-uno']
+                entry['simulation_scope'] = 'Existing dual ADC axes and active-low pushbutton model; requires distinct VERT/HORZ ADC pins and SEL GPIO.'
+            if item['id'] in ('gas-sensor','flame-sensor','big-sound-sensor','small-sound-sensor'):
+                entry['simulation_boards'] = ['arduino-uno']
+                entry['simulation_scope'] = 'Existing simplified ADC sensor model on Uno A0-A5; DOUT is only a GPIO-driven indicator, not a modeled sensor comparator.'
             if item['id'] in ('ntc-temperature-sensor', 'photoresistor-sensor', 'pir-motion-sensor'):
                 entry['simulation_boards'] = ['arduino-uno']
                 entry['simulation_scope'] = 'Existing Uno ADC/input model. NTC uses the original beta divider; photoresistor AO uses a simplified light-to-voltage mapping; PIR pulse uses browser wall time.'
             if item['id'] in ('ssd1306', 'ssd1306-i2c-4pin', 'lcd1602-i2c', 'lcd2004-i2c', 'mpu6050', 'ds1307', 'ds3231', 'bmp280'):
                 entry['simulation_boards'] = ['arduino-uno']
                 entry['simulation_scope'] = ('Existing Velxio SSD1306 I2C or hardware SPI model on Uno. SPI uses MOSI11/SCK13 plus distinct CS/DC GPIO; correct supply/ground are required.' if item['id'] == 'ssd1306' else 'Existing Velxio I2C model on Uno A4/SDA and A5/SCL; requires correct power, ground and address. Other interfaces and chip features are not certified.')
-            entry['pins'] = PIN_LAYOUTS.get(item['id'], [])
+            extracted = COMPONENT_PINS.get(item['id'])
+            matching_pins = extracted if extracted and extracted['tagName'] == entry.get('tagName') else None
+            if matching_pins:
+                entry['pinInfo'] = copy.deepcopy(matching_pins['pins'])
+                entry['pin_provenance'] = 'backend/catalog/component-pins.json'
+                for mode in ('pins', 'protocol'):
+                    if mode in matching_pins.get('properties', {}):
+                        entry.setdefault('defaultValues', {})[mode] = copy.deepcopy(matching_pins['properties'][mode])
+            explicit = item['id'] in EXPLICIT_PIN_LAYOUTS
+            entry['pins'] = copy.deepcopy(item.get('pins') or PIN_LAYOUTS.get(item['id'], [])) if explicit or matching_pins or item.get('pins') else []
             entry['connectable'] = bool(entry['pins'])
+            if matching_pins and not explicit:
+                entry['pinCount'] = len(entry['pins'])
             if item['id'] in ('potentiometer', 'servo', 'hc-sr04', 'slide-potentiometer', 'rgb-led', 'dht22'):
                 entry['simulation_boards'] = ['arduino-uno', 'arduino-nano', 'arduino-mega', 'pi-pico', 'pi-pico-w'] if item['id'] == 'potentiometer' else ['arduino-uno'] if item['id'] == 'slide-potentiometer' else ['arduino-uno', 'arduino-nano', 'arduino-mega']
                 entry['simulation_scope'] = {'potentiometer': 'ADC input from the Wokwi control; Nano A6/A7 are analog-only', 'slide-potentiometer': 'ADC input from the original slider control', 'rgb-led': 'Common-cathode digital/PWM channels; each channel requires a current-limiting resistor; no analog current model', 'dht22': 'Timed DHT22 protocol read by the Adafruit library; temperature/humidity controls, no physical environment model', 'servo': 'Angle from GPIO pulse widths; no torque or supply-current model', 'hc-sr04': 'Timed trigger/echo distance response; no acoustic interference model'}[item['id']]
@@ -636,10 +713,12 @@ class RuntimeBridge:
 
 
 class HardwareService:
-    def __init__(self, data_dir=None, compiler=None, runtime=None, catalog=None):
+    def __init__(self, data_dir=None, compiler=None, runtime=None, catalog=None, native=None):
         self.data_dir = Path(data_dir) if data_dir else ROOT / 'backend/data/hardware'
         self.compiler = compiler or ArduinoCompiler()
         self.runtime = runtime or RuntimeBridge()
+        from backend.native_esp32 import NativeESP32
+        self.native = native or NativeESP32()
         self.catalog = catalog or ComponentCatalog()
         self.lock = threading.RLock()
         self.compile_gate = asyncio.Semaphore(1)
@@ -704,6 +783,8 @@ class HardwareService:
     def delete_project(self, project_id):
         with self.lock:
             project = self._load(project_id)
+            if self.native.active(project_id):
+                fail(409, 'Stop the native ESP32 runtime before deleting this project.')
             if project_id in self.runtime.sessions:
                 fail(409, 'This project is open in a hardware workspace. Close its workspace before deleting it.')
             self._path(project_id).unlink()
@@ -965,8 +1046,30 @@ class HardwareService:
         if name in ('run_simulation', 'stop_simulation', 'read_simulation_results'):
             self.authorize_runtime(project, runtime_token)
             board = BOARD_CONFIG.get(project['board'])
+            if args.get('runtime') == 'qemu-native':
+                from backend.native_esp32 import RunRequest, StopRequest
+                revision_args = {'runtime_token': runtime_token, 'expected_revision': args.get('expected_revision', project['revision']),
+                                 'source_revision': args.get('source_revision', project['firmware']['revision'])}
+                if type(revision_args['expected_revision']) is not int:
+                    fail(409, 'Project revision conflict. Reload the current project.')
+                self._check_revision(project, revision_args)
+                if type(revision_args['source_revision']) is not int or revision_args['source_revision'] != project['firmware']['revision']:
+                    fail(409, 'Firmware revision conflict. Reload the current project.')
+                for key in ('artifact_id', 'run_id'):
+                    if args.get(key) is not None:
+                        identifier(args[key])
+                if name == 'run_simulation':
+                    result = await self.native.run(self, project_id, RunRequest(**revision_args, artifact_id=args.get('artifact_id')))
+                elif name == 'stop_simulation':
+                    result = await self.native.stop(self, project_id, StopRequest(**revision_args, run_id=args.get('run_id')))
+                else:
+                    result = await self.native.results(self, project_id, runtime_token,
+                                                       revision_args['expected_revision'], revision_args['source_revision'],
+                                                       run_id=args.get('run_id'))
+                return {'status': 'acknowledged', 'command': name, 'result': result}
             remote = project['board'] in ('esp32-devkit-v1', 'esp32-devkit-c-v4', 'esp32-s3', 'esp32-c3') and bool(os.getenv('REMOTE_SIMULATION_URL'))
-            if not board or (board['simulation'] != 'browser' and not remote):
+            native_adapter = project['board'] in ('esp32-devkit-v1', 'esp32-devkit-c-v4') and project_id in getattr(self.runtime, 'sessions', {})
+            if not board or (board['simulation'] != 'browser' and not remote and not native_adapter):
                 fail(503, board['unavailable_reason'] if board else 'This board has no configured runtime.')
             runtime_args = {}
             if name == 'run_simulation':
@@ -1108,6 +1211,8 @@ def create_router(hardware_service):
 
     from backend.board_flash import create_router as create_flash_router
     api.include_router(create_flash_router(hardware_service, prefix=''))
+    from backend.native_esp32 import create_router as create_native_router
+    api.include_router(create_native_router(hardware_service))
     return api
 
 

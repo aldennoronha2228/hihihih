@@ -19,6 +19,7 @@ node_modules
 dist
 dist-ssr
 test-results
+audit-artifacts/
 playwright-report
 *.local
 

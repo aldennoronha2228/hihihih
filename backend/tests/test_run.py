@@ -42,7 +42,9 @@ def test_compiler_loop_launches_subprocess():
         stdout, _ = await asyncio.wait_for(process.communicate(), 10)
         assert process.returncode == 0
         assert stdout.strip() == b'42'
-    with asyncio.Runner(loop_factory=run.compiler_loop) as runner:
+    loop_factory = run.uvicorn.Config('backend.app:app', loop='backend.run:compiler_loop').get_loop_factory()
+    assert loop_factory is run.compiler_loop
+    with asyncio.Runner(loop_factory=loop_factory) as runner:
         runner.run(execute())
 
 
