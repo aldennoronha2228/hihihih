@@ -1,0 +1,25 @@
+{
+  "kind": "dip_ic",
+  "id": "l293d-dip16",
+  "name": "ST L293D PDIP-16",
+  "wireup_type": "motor-driver-l293d",
+  "manufacturer": "STMicroelectronics",
+  "part_number": "L293D",
+  "geometry_source": "reconstructed-from-drawing",
+  "source_url": "https://www.st.com/resource/en/datasheet/l293d.pdf",
+  "dimensions_mm": {
+    "body_length": 19.8,
+    "body_width": 6.35,
+    "body_height": 4.6,
+    "pin_pitch": 2.54,
+    "row_spacing": 7.62,
+    "pin_length": 3.6,
+    "pin_thickness": 0.6,
+    "lead_width": 0.6
+  },
+  "uncertainty": "Body 19.8 x 6.35 mm is the TI L293D DIP-16 published body size; the ST PDIP-16 package drawing gives D = 20.0 mm max and e = 2.54 mm, e1 = 17.78 mm. Modelled with D = 19.8 mm, row spacing 7.62 mm, lead length 3.6 mm; pin-1 notch is at the catalogue top-view end.",
+  "mass_g": 0.4,
+  "mass_source": "Estimated from 19.8 x 6.35 x 4.6 mm epoxy DIP body (density ~1.2 g/cm3). Not a manufacturer figure.",
+  "material": "Epoxy DIP-16 body, tin-plated leads",
+  "features": { "pin_count": 16 }
+}

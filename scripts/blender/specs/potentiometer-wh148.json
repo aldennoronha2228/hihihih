@@ -1,0 +1,36 @@
+{
+  "kind": "panel_potentiometer",
+  "id": "wh148-b10k",
+  "name": "WH148-1A linear 10 kOhm panel potentiometer",
+  "wireup_type": "potentiometer",
+  "manufacturer": "WH148 series (BI Technologies / KLS)",
+  "part_number": "WH148-1A-B103",
+  "geometry_source": "reconstructed-from-drawing",
+  "source_url": "https://handsontec.com/dataspecs/passive/WH148%20Pot-meter.pdf",
+  "dimensions_mm": {
+    "body_diameter": 16.0,
+    "body_height": 10.5,
+    "flange_diameter": 19.0,
+    "flange_thickness": 1.0,
+    "shaft_diameter": 6.0,
+    "shaft_length": 7.0,
+    "shaft_flat_mm": 1.2,
+    "knurl_length": 5.0,
+    "lug_thickness": 1.0,
+    "lug_length": 6.0
+  },
+  "uncertainty": "WH148 datasheet gives 16 mm class body, 7 mm shaft length, 6 mm shaft diameter, 300 deg rotation. Exact body height and lug geometry are not tabulated; modelled at 10.5 mm body height with two solder lugs at 90 deg, matching the published mechanical drawing layout.",
+  "mass_g": 9.0,
+  "mass_source": "Estimated from a 16 mm x 10.5 mm metal-cased carbon potentiometer. Not a manufacturer figure.",
+  "material": "Metal case, carbon track, knurled aluminium shaft",
+  "features": {
+    "mount_hole_diameter": 3.2,
+    "mount_hole_count": 2,
+    "mount_hole_spacing": 7.0,
+    "pins": 3,
+    "total_rotation_deg": 300,
+    "resistance_ohm": 10000,
+    "taper": "linear",
+    "power_w": 0.125
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "kind": "pcb_board",
+  "id": "nano-classic-v3",
+  "name": "Arduino Nano (classic, v3)",
+  "wireup_type": "arduino-nano",
+  "manufacturer": "Arduino",
+  "part_number": "ABX00083",
+  "geometry_source": "reconstructed-from-drawing",
+  "source_url": "https://docs.arduino.cc/learn/hardware/nano-pcb-guide",
+  "dimensions_mm": { "length": 43.18, "width": 17.78, "thickness": 1.6 },
+  "uncertainty": "Arduino publishes 43.16 x 17.76 mm board (docs.arduino.cc nano PCB guide) and 43.18 x 17.78 mm on the R4 datasheet page; the v3 outline is taken as 43.18 x 17.78 mm, tolerance +/-0.1 mm. Header positions are derived from the published 2.54 mm pitch, not measured.",
+  "mass_g": 7.0,
+  "mass_source": "Arduino product page: 'weighs only 7 grams' (board as sold with headers).",
+  "material": "FR-4 laminate, 1.6 mm, green solder mask",
+  "features": {
+    "header_pitch_mm": 2.54,
+    "header_rows": 2,
+    "header_pins_per_row": 15,
+    "header_pin_length_mm": 6.0,
+    "header_pin_thickness_mm": 0.64,
+    "header_insulator_length_mm": 2.5,
+    "usb_type": "mini-b",
+    "usb_overhang_mm": 7.4,
+    "usb_width_mm": 8.0,
+    "usb_height_mm": 4.0,
+    "mcu": { "package": "TQFP-32", "body_mm": [9.0, 9.0, 1.0], "position_mm": [21.5, 0.0, 0.0] },
+    "usb_ic": { "package": "SOP-8", "body_mm": [4.9, 3.9, 1.75], "position_mm": [8.0, 0.0, 0.0] },
+    "regulator": { "package": "SOT-223", "body_mm": [6.5, 3.5, 1.8], "position_mm": [34.0, 4.5, 0.0] },
+    "leds": [
+      { "name": "power", "diameter_mm": 1.6, "position_mm": [16.0, 6.0, 0.0] },
+      { "name": "L", "diameter_mm": 1.6, "position_mm": [16.0, 3.0, 0.0] },
+      { "name": "RX", "diameter_mm": 1.6, "position_mm": [19.0, 6.0, 0.0] },
+      { "name": "TX", "diameter_mm": 1.6, "position_mm": [19.0, 3.0, 0.0] }
+    ],
+    "mounting_holes": [
+      { "diameter_mm": 1.65, "position_mm": [14.0, 8.89, 0.0] },
+      { "diameter_mm": 1.65, "position_mm": [14.0, -8.89, 0.0] },
+      { "diameter_mm": 1.65, "position_mm": [33.0, 8.89, 0.0] },
+      { "diameter_mm": 1.65, "position_mm": [33.0, -8.89, 0.0] }
+    ],
+    "reset_button": { "diameter_mm": 2.0, "height_mm": 1.5, "position_mm": [2.5, 0.0, 0.0] }
+  }
+}

@@ -1,0 +1,343 @@
+{
+  "schema_version": 1,
+  "note": "Values carry units, source and uncertainty. Nothing here is inferred from mesh appearance.",
+  "components": {
+    "nano-classic-v3": {
+      "id": "nano-classic-v3",
+      "name": "Arduino Nano (classic, v3)",
+      "wireup_type": "arduino-nano",
+      "catalog_status": "in-catalog",
+      "geometry_source": "reconstructed-from-drawing",
+      "mass_kg": 0.007,
+      "mass_source": "Arduino product page: 'weighs only 7 grams' (board as sold with headers).",
+      "mass_uncertainty": null,
+      "material": "FR-4 laminate, 1.6 mm, green solder mask",
+      "collider": {
+        "type": "cuboid",
+        "size_m": [
+          0.04318,
+          0.01778,
+          0.0016
+        ]
+      }
+    },
+    "l293d-dip16": {
+      "id": "l293d-dip16",
+      "name": "ST L293D PDIP-16",
+      "wireup_type": "motor-driver-l293d",
+      "catalog_status": "in-catalog",
+      "geometry_source": "reconstructed-from-drawing",
+      "mass_kg": 0.0004,
+      "mass_source": "Estimated from 19.8 x 6.35 x 4.6 mm epoxy DIP body (density ~1.2 g/cm3). Not a manufacturer figure.",
+      "mass_uncertainty": null,
+      "material": "Epoxy DIP-16 body, tin-plated leads",
+      "collider": {
+        "type": "cuboid",
+        "size_m": [
+          0.0198,
+          0.00635,
+          0.008199999999999999
+        ]
+      }
+    },
+    "wh148-b10k": {
+      "id": "wh148-b10k",
+      "name": "WH148-1A linear 10 kOhm panel potentiometer",
+      "wireup_type": "potentiometer",
+      "catalog_status": "in-catalog",
+      "geometry_source": "reconstructed-from-drawing",
+      "mass_kg": 0.009,
+      "mass_source": "Estimated from a 16 mm x 10.5 mm metal-cased carbon potentiometer. Not a manufacturer figure.",
+      "mass_uncertainty": null,
+      "material": "Metal case, carbon track, knurled aluminium shaft",
+      "collider": {
+        "type": "cylinder",
+        "radius_m": 0.008,
+        "height_m": 0.0105
+      },
+      "actuator": {
+        "resistance_ohm": 10000,
+        "total_rotation_deg": 300
+      }
+    },
+    "lipo-2s-5200-50c": {
+      "id": "lipo-2s-5200-50c",
+      "name": "2S 7.4 V 5200 mAh 50C hard-case LiPo",
+      "wireup_type": null,
+      "catalog_status": "not-in-wireup-catalog",
+      "geometry_source": "reconstructed-from-drawing",
+      "mass_kg": 0.268,
+      "mass_source": "NHX Muscle Pack 2S 5200 mAh 50C: 268 g.",
+      "mass_uncertainty": null,
+      "material": "LiPo pouch cells in a hard plastic shell, silicone pad",
+      "collider": {
+        "type": "cuboid",
+        "size_m": [
+          0.138,
+          0.047,
+          0.025
+        ]
+      },
+      "actuator": {
+        "nominal_voltage": 7.4,
+        "cells": 2,
+        "capacity_mah": 5200
+      }
+    },
+    "quicrun-wp-1060": {
+      "id": "quicrun-wp-1060",
+      "name": "Hobbywing QuicRun WP-1060 1/10 brushed ESC",
+      "wireup_type": null,
+      "catalog_status": "not-in-wireup-catalog",
+      "geometry_source": "reconstructed-from-drawing",
+      "mass_kg": 0.039,
+      "mass_source": "Hobbywing manual: 39 g.",
+      "mass_uncertainty": null,
+      "material": "Epoxy potted PCB, aluminium capacitor block",
+      "collider": {
+        "type": "cuboid",
+        "size_m": [
+          0.0355,
+          0.03218,
+          0.018
+        ]
+      },
+      "actuator": {
+        "bec_voltage": 5.0,
+        "bec_current_a": 3.0,
+        "fwd_continuous_a": 60.0,
+        "fwd_peak_a": 360.0,
+        "rev_continuous_a": 30.0,
+        "rev_peak_a": 180.0
+      }
+    },
+    "quicrun-540-30t": {
+      "id": "quicrun-540-30t",
+      "name": "Hobbywing QuicRun brushed 540-30T 1/10 motor",
+      "wireup_type": null,
+      "catalog_status": "not-in-wireup-catalog",
+      "geometry_source": "reconstructed-from-drawing",
+      "mass_kg": 0.168,
+      "mass_source": "Hobbywing QuicRun 540-30T: weight 168 g.",
+      "mass_uncertainty": null,
+      "material": "Steel can, plastic endbell, armature with copper windings",
+      "collider": {
+        "type": "cylinder",
+        "radius_m": 0.018,
+        "height_m": 0.053200000000000004,
+        "axis": "Y"
+      },
+      "actuator": {
+        "turns": 30,
+        "kv_rpm_per_volt": 1111,
+        "no_load_rpm_at_12v6": 14000,
+        "armature_inertia_kg_m2": 1.08e-05,
+        "winding_resistance_ohm": 0.12,
+        "nominal_voltage": 7.4
+      }
+    },
+    "wheel-front-59mm": {
+      "id": "wheel-front-59mm",
+      "name": "1/10 scale 59 x 26 mm road tire on hex-12 rim",
+      "wireup_type": null,
+      "catalog_status": "custom-design",
+      "geometry_source": "custom-design",
+      "mass_kg": 0.022,
+      "mass_source": "Estimated for a 59 x 26 foam/rubber tire plus nylon rim. Not a manufacturer figure.",
+      "mass_uncertainty": null,
+      "material": "Rubber tire, nylon rim",
+      "collider": {
+        "type": "cylinder",
+        "radius_m": 0.0295,
+        "height_m": 0.026,
+        "axis": "Y"
+      }
+    },
+    "wheel-rear-68mm": {
+      "id": "wheel-rear-68mm",
+      "name": "1/10 scale 68 x 26 mm drive tire on hex-12 rim",
+      "wireup_type": null,
+      "catalog_status": "custom-design",
+      "geometry_source": "custom-design",
+      "mass_kg": 0.026,
+      "mass_source": "Estimated for a 68 x 26 foam tire plus nylon rim. Not a manufacturer figure.",
+      "mass_uncertainty": null,
+      "material": "Foam/rubber tire, nylon rim",
+      "collider": {
+        "type": "cylinder",
+        "radius_m": 0.034,
+        "height_m": 0.026,
+        "axis": "Y"
+      }
+    },
+    "mg996r": {
+      "id": "mg996r",
+      "name": "Tower Pro MG996R metal gear servo",
+      "wireup_type": "servo",
+      "catalog_status": "in-catalog",
+      "geometry_source": "reconstructed-from-drawing",
+      "mass_kg": 0.055,
+      "mass_source": "Tower Pro / DigiKey MG996R datasheet: weight 55 g.",
+      "mass_uncertainty": null,
+      "material": "ABS case, metal gear set, steel shaft",
+      "collider": {
+        "type": "cuboid",
+        "size_m": [
+          0.0407,
+          0.0268,
+          0.0429
+        ]
+      },
+      "actuator": {
+        "stall_torque_kgcm": 9.4,
+        "stall_torque_voltage": 4.8,
+        "speed_sec_per_60deg": 0.17,
+        "dead_band_us": 5.0,
+        "min_pulse_us": 500,
+        "max_pulse_us": 2400,
+        "neutral_us": 1500
+      }
+    },
+    "sg90": {
+      "id": "sg90",
+      "name": "Tower Pro SG90 9 g servo",
+      "wireup_type": "servo",
+      "catalog_status": "in-catalog",
+      "geometry_source": "reconstructed-from-drawing",
+      "mass_kg": 0.009,
+      "mass_source": "Tower Pro: weight 9 g.",
+      "mass_uncertainty": null,
+      "material": "ABS case, POM gear set, steel shaft",
+      "collider": {
+        "type": "cuboid",
+        "size_m": [
+          0.0228,
+          0.017,
+          0.034
+        ]
+      },
+      "actuator": {
+        "stall_torque_kgcm": 1.8,
+        "stall_torque_voltage": 4.8,
+        "speed_sec_per_60deg": 0.1,
+        "dead_band_us": 1.0,
+        "min_pulse_us": 500,
+        "max_pulse_us": 2400,
+        "neutral_us": 1500
+      }
+    },
+    "nema17-42-40": {
+      "id": "nema17-42-40",
+      "name": "NEMA-17 42 mm hybrid stepper, 40 mm body",
+      "wireup_type": "stepper-motor",
+      "catalog_status": "in-catalog",
+      "geometry_source": "reconstructed-from-drawing",
+      "mass_kg": 0.276,
+      "mass_source": "NEMA-17 42 mm 40 mm-body steppers are published in the 200-280 g class; 276 g used.",
+      "mass_uncertainty": null,
+      "material": "Laminated steel stack, aluminium end plates, black epoxy",
+      "collider": {
+        "type": "cuboid",
+        "size_m": [
+          0.0423,
+          0.0423,
+          0.064
+        ]
+      },
+      "actuator": {
+        "step_angle_deg": 1.8,
+        "rated_current_per_phase_a": 1.0,
+        "holding_torque_kgcm": 3.4
+      }
+    }
+  },
+  "vehicles": {
+    "rc-car-1to10-chassis": {
+      "id": "rc-car-1to10-chassis",
+      "name": "1/10 scale custom RC chassis assembly (design dimensions, not a manufacturer product)",
+      "catalog_status": "custom-design",
+      "geometry_source": "custom-design",
+      "design_basis": "Dimensioned so that the sourced parts (Arduino Nano, MG996R, QuicRun 540, QuicRun 1060 ESC, 2S 5200 pack, 59/68 mm tires) physically fit a 1/10 scale layout. Wheelbase and track follow the 1/10 scale class, not any single product.",
+      "uncertainty": "Every chassis dimension is a design decision recorded here, not a measurement of a real product. Tire and motor mounting positions are chosen to satisfy the sourced part envelopes; the spring rates, camber, ackermann and tire friction below are design targets with no measured source and must not be read as calibrated.",
+      "physics_uncertainty": "tire_mu 1.15 is a design target for a rubber tire on smooth asphalt (published RC on-road tire friction coefficients sit roughly 0.9-1.3). tire_vertical_stiffness 90 kN/m and damping 900 Ns/m are design targets; no measured tire spring rate exists for this carcass. drag 0.62 and frontal area 0.042 m2 are estimates from the body envelope, not from a wind tunnel.",
+      "mass_kg": 1.081,
+      "mass_breakdown_kg": {
+        "battery": 0.268,
+        "motor": 0.168,
+        "esc": 0.039,
+        "steering_servo": 0.055,
+        "electronics": 0.06,
+        "body": 0.18,
+        "chassis": 0.17,
+        "axles": 0.045,
+        "wheels": 0.096
+      },
+      "mass_source": "Design target: ~1.18 kg ready-to-run for a 1/10 on-road/buggy (battery 268 g + motor 168 g + ESC 39 g + 55 g servo + electronics ~60 g + chassis/body/tyres the remainder). Not a weighed value.",
+      "center_of_mass_m": [
+        0.005,
+        0.0,
+        0.034
+      ],
+      "inertia_kg_m2": {
+        "ixx": 0.000756,
+        "iyy": 0.000869,
+        "izz": 0.014994
+      },
+      "inertia_source": "Derived from the mass breakdown above combined as point masses at the front and rear axle heights: Ixx uses the mean wheel radius, Izz uses the wheelbase and rear track. No measured inertia exists.",
+      "geometry": {
+        "wheelbase_m": 0.254,
+        "track_front_m": 0.19,
+        "track_rear_m": 0.2,
+        "front_wheel_radius_m": 0.0295,
+        "rear_wheel_radius_m": 0.034,
+        "axle_height_m": 0.0295,
+        "center_diff_to_rear_axle_m": 0.06,
+        "ride_height_m": 0.008,
+        "max_steer_rad": 0.4886921905584123,
+        "camber_front_rad": -0.03490658503988659,
+        "ackermann_rad": 0.3839724354387525
+      },
+      "tire": {
+        "model": "simplified_linear_with_saturation",
+        "mu": 1.15,
+        "vertical_stiffness_n_per_m": 90000.0,
+        "damping_ns_per_m": 900.0,
+        "rolling_resistance_coefficient": 0.015,
+        "source": "Design target for a rubber tire on smooth asphalt; no measured tire data."
+      },
+      "aero": {
+        "drag_coefficient": 0.62,
+        "frontal_area_m2": 0.042,
+        "downforce_coefficient": 0.35,
+        "source": "Estimated from the body envelope in specs/rc-chassis-assembly.json."
+      },
+      "drivetrain": {
+        "motor": "hobbywing-quicrun-540-30t",
+        "esc": "hobbywing-quicrun-wp-1060",
+        "gear_ratio": 4.1667,
+        "final_drive_efficiency": 0.85,
+        "diff_efficiency": 1.0,
+        "max_motor_rpm": 14000.0,
+        "pinion_teeth": 12,
+        "spur_teeth": 50,
+        "source": "Gear ratio 50/12 = 4.1667 from the chosen pinion/spur tooth counts; efficiency 0.85 is a design target for a nylon spur gear."
+      },
+      "steering": {
+        "servo": "towerpro-mg996r",
+        "servo_pulse_to_angle": {
+          "min_us": 500,
+          "center_us": 1500,
+          "max_us": 2400,
+          "min_deg": -25,
+          "max_deg": 25
+        },
+        "steering_ratio_note": "The firmware maps the steering pot to 65-115 deg; the physical steering ratio (servo angle to road-wheel angle) follows from the tie-rod geometry in the assembly spec."
+      },
+      "integration_gaps": [
+        "WireUp's catalog has no brushed DC motor or ESC part, so this profile is not yet driven by any simulated component.",
+        "WireUp's catalog has no radio receiver; the current firmware reads two potentiometers directly instead of a PWM receiver frame.",
+        "The current firmware steps the L293D as a stepper, so no 0-100% throttle PWM reaches the motor and the ESC cannot be simulated from firmware output yet."
+      ]
+    }
+  }
+}

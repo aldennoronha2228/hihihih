@@ -1,0 +1,40 @@
+{
+  "kind": "hobby_servo",
+  "id": "mg996r",
+  "name": "Tower Pro MG996R metal gear servo",
+  "wireup_type": "servo",
+  "manufacturer": "Tower Pro",
+  "part_number": "MG996R",
+  "geometry_source": "reconstructed-from-drawing",
+  "source_url": "https://towerpro.com.tw/product/mg996r/",
+  "dimensions_mm": {
+    "body_length": 40.7,
+    "body_width": 19.7,
+    "body_height": 36.5,
+    "flange_length": 54.0,
+    "flange_width": 26.8,
+    "flange_height": 3.0,
+    "shaft_diameter": 4.8,
+    "shaft_length": 12.0,
+    "shaft_flat_mm": 1.2,
+    "horn_length": 24.0,
+    "total_height_with_horn": 42.9
+  },
+  "uncertainty": "Tower Pro states 40.7 x 19.7 x 42.9 mm approx; the 42.9 mm height is modelled as 36.5 mm case + flange and 12 mm output shaft, so the assembled height with horn exceeds the published figure. Draw-table values A 42.7, B 40.9, C 37, D 20, E 54, F 26.8 are used for the mounting ears.",
+  "mass_g": 55.0,
+  "mass_source": "Tower Pro / DigiKey MG996R datasheet: weight 55 g.",
+  "material": "ABS case, metal gear set, steel shaft",
+  "features": {
+    "mount_hole_diameter": 4.0,
+    "mount_hole_spacing_long": 49.0,
+    "mount_hole_spacing_short": 10.0,
+    "cable_length": 320.0,
+    "stall_torque_kgcm": 9.4,
+    "stall_torque_voltage": 4.8,
+    "speed_sec_per_60deg": 0.17,
+    "dead_band_us": 5.0,
+    "min_pulse_us": 500,
+    "max_pulse_us": 2400,
+    "neutral_us": 1500
+  }
+}

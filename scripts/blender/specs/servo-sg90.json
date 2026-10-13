@@ -1,0 +1,40 @@
+{
+  "kind": "hobby_servo",
+  "id": "sg90",
+  "name": "Tower Pro SG90 9 g servo",
+  "wireup_type": "servo",
+  "manufacturer": "Tower Pro",
+  "part_number": "SG90",
+  "geometry_source": "reconstructed-from-drawing",
+  "source_url": "https://towerpro.com.tw/product/sg90-analog/",
+  "dimensions_mm": {
+    "body_length": 22.8,
+    "body_width": 12.2,
+    "body_height": 16.0,
+    "flange_length": 32.3,
+    "flange_width": 17.0,
+    "flange_height": 2.5,
+    "shaft_diameter": 3.0,
+    "shaft_length": 10.0,
+    "shaft_flat_mm": 1.0,
+    "horn_length": 22.0,
+    "total_height_with_horn": 34.0
+  },
+  "uncertainty": "Tower Pro lists 23 x 12.2 x 29 mm overall; the modelled body is 22.8 x 12.2 mm with the 29 mm height split into 16 mm case + flange and 10 mm output shaft. Mounting ears and boss are from the published A/B/C/D/E/F drawing table (A 30.3, B 22.7, C 27, D 12.2, E 32.3, F 17).",
+  "mass_g": 9.0,
+  "mass_source": "Tower Pro: weight 9 g.",
+  "material": "ABS case, POM gear set, steel shaft",
+  "features": {
+    "mount_hole_diameter": 2.0,
+    "mount_hole_spacing_long": 28.0,
+    "mount_hole_spacing_short": 10.0,
+    "cable_length": 250.0,
+    "stall_torque_kgcm": 1.8,
+    "stall_torque_voltage": 4.8,
+    "speed_sec_per_60deg": 0.1,
+    "dead_band_us": 1.0,
+    "min_pulse_us": 500,
+    "max_pulse_us": 2400,
+    "neutral_us": 1500
+  }
+}

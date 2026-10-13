@@ -1,0 +1,90 @@
+{
+  "l293d-dip16": {
+    "blender": "5.2.2 LTS",
+    "built_at": "2026-10-14T00:33:54",
+    "bytes": 26720,
+    "file": "l293d-dip16.glb",
+    "objects": 3,
+    "spec_hash": "a0cf220685cbfda739111e84e9e535dc87746a6b4178725c19fe60818cb37020"
+  },
+  "lipo-2s-5200-50c": {
+    "blender": "5.2.2 LTS",
+    "built_at": "2026-10-14T00:33:54",
+    "bytes": 8032,
+    "file": "lipo-2s-5200-50c.glb",
+    "objects": 6,
+    "spec_hash": "44c90777dde05b1ee4adf4d59d9fcc281edd2c375239fdfe234a617f8b7e675b"
+  },
+  "mg996r": {
+    "blender": "5.2.2 LTS",
+    "built_at": "2026-10-14T00:33:55",
+    "bytes": 44316,
+    "file": "mg996r.glb",
+    "objects": 6,
+    "spec_hash": "0be546dfce80a6ac5376b3a90b7f71b051427a58ec50ca98dfd5130f93ac6a2e"
+  },
+  "nano-classic-v3": {
+    "blender": "5.2.2 LTS",
+    "built_at": "2026-10-14T00:33:54",
+    "bytes": 91264,
+    "file": "nano-classic-v3.glb",
+    "objects": 11,
+    "spec_hash": "2ffaa96cfe348fb2a5532e6308e66aee361d3d5daa7c843f33cb2ec2d537c1ed"
+  },
+  "nema17-42-40": {
+    "blender": "5.2.2 LTS",
+    "built_at": "2026-10-14T00:33:56",
+    "bytes": 43256,
+    "file": "nema17-42-40.glb",
+    "objects": 5,
+    "spec_hash": "fc496c00c012ac79f5a8716f75c06f592e0da75fe3ab0f8aa8369fb1951b05b4"
+  },
+  "quicrun-540-30t": {
+    "blender": "5.2.2 LTS",
+    "built_at": "2026-10-14T00:33:55",
+    "bytes": 50340,
+    "file": "quicrun-540-30t.glb",
+    "objects": 5,
+    "spec_hash": "18fe224f1d2042d2dba96dbc4be01e5956e5359dee1010d7850b01ea457a6ebf"
+  },
+  "quicrun-wp-1060": {
+    "blender": "5.2.2 LTS",
+    "built_at": "2026-10-14T00:33:54",
+    "bytes": 12388,
+    "file": "quicrun-wp-1060.glb",
+    "objects": 5,
+    "spec_hash": "2a9b52cc4cb6cf1cf3647bae260a02f209c1ac066cce64b1df9df8ecfd9aa2f7"
+  },
+  "sg90": {
+    "blender": "5.2.2 LTS",
+    "built_at": "2026-10-14T00:33:55",
+    "bytes": 43940,
+    "file": "sg90.glb",
+    "objects": 6,
+    "spec_hash": "14d755029be72212db59eb8371c34cf0acb17f1bbd891f96903cafde4bd7181b"
+  },
+  "wh148-b10k": {
+    "blender": "5.2.2 LTS",
+    "built_at": "2026-10-14T00:33:54",
+    "bytes": 35180,
+    "file": "wh148-b10k.glb",
+    "objects": 6,
+    "spec_hash": "2b375fe3acb4dba7868894df66b46696569052a295eccdc527a2a734b1c4f303"
+  },
+  "wheel-front-59mm": {
+    "blender": "5.2.2 LTS",
+    "built_at": "2026-10-14T00:33:55",
+    "bytes": 72880,
+    "file": "wheel-front-59mm.glb",
+    "objects": 5,
+    "spec_hash": "ea334059ab1c6b4e9d4fdfbe08518c69ed8fa3284171303f75f553e9267a8de6"
+  },
+  "wheel-rear-68mm": {
+    "blender": "5.2.2 LTS",
+    "built_at": "2026-10-14T00:33:55",
+    "bytes": 72876,
+    "file": "wheel-rear-68mm.glb",
+    "objects": 5,
+    "spec_hash": "deeab1546ec93de15dfeddf976ab793226c893f62be338947ae8e5259c8a4c5c"
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "kind": "rc_esc",
+  "id": "quicrun-wp-1060",
+  "name": "Hobbywing QuicRun WP-1060 1/10 brushed ESC",
+  "wireup_type": null,
+  "catalog_status": "not-in-wireup-catalog",
+  "manufacturer": "Hobbywing",
+  "part_number": "HWA30120201",
+  "geometry_source": "reconstructed-from-drawing",
+  "source_url": "https://www.greathobbies.com/manuals/h/hbw/hbw30120201_manual.pdf",
+  "dimensions_mm": {
+    "length": 35.5,
+    "width": 32.18,
+    "height": 18.0,
+    "capacitor_block_length": 16.0,
+    "capacitor_block_width": 8.0,
+    "capacitor_block_height": 6.0
+  },
+  "uncertainty": "Hobbywing manual dimension table: WP-1060-BRUSHED 36.5 x 32 x 18 mm, 39 g. Modelled at 35.5 x 32.18 mm using the retailer spec table; capacitor block height is not published and is modelled at 6 mm above the case.",
+  "mass_g": 39.0,
+  "mass_source": "Hobbywing manual: 39 g.",
+  "material": "Epoxy potted PCB, aluminium capacitor block",
+  "features": {
+    "bec_voltage": 5.0,
+    "bec_current_a": 3.0,
+    "input_cells_min": 2,
+    "input_cells_max": 3,
+    "fwd_continuous_a": 60.0,
+    "fwd_peak_a": 360.0,
+    "rev_continuous_a": 30.0,
+    "rev_peak_a": 180.0,
+    "motor_bullet_mm": 4.0,
+    "signal_protocol": "standard hobby PWM 1.0-2.0 ms, 50 Hz",
+    "note": "This ESC expects a servo-style PWM throttle signal. The current WireUp circuit drives the L293D directly with digitalWrite + EN stepping, so the ESC is an unmodelled integration point for the 1/10 build."
+  }
+}

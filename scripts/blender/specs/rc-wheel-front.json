@@ -1,0 +1,25 @@
+{
+  "kind": "rc_tire",
+  "id": "wheel-front-59mm",
+  "name": "1/10 scale 59 x 26 mm road tire on hex-12 rim",
+  "wireup_type": null,
+  "catalog_status": "custom-design",
+  "manufacturer": "Custom concept (dimensioned from published 1/10 tire ranges)",
+  "part_number": null,
+  "geometry_source": "custom-design",
+  "source_url": "https://www.racingline-rc.com/Tyres-and-Rims",
+  "dimensions_mm": {
+    "outer_diameter": 59.0,
+    "width": 26.0,
+    "rim_diameter": 21.6,
+    "rim_width": 22.0,
+    "hub_hex": 12.0,
+    "tire_thickness": 4.0,
+    "shoulder_radius": 6.0
+  },
+  "uncertainty": "Matrix 1/10 Formula tires publish 59 mm diameter and 30 mm width; eXcelerate 1/10 fronts publish 62 x 29 mm; Hot Race 1/10 fronts publish 59 mm. Modelled at 59 x 26 mm to fit a 59 mm rolling diameter with a 12 mm hex hub as listed by 1/10 wheel sets. Compound and profile are design choices, not measured.",
+  "mass_g": 22.0,
+  "mass_source": "Estimated for a 59 x 26 foam/rubber tire plus nylon rim. Not a manufacturer figure.",
+  "material": "Rubber tire, nylon rim",
+  "features": { "shore": 40, "tire_model": "linear_simplified" }
+}

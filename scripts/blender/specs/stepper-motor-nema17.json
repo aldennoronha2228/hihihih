@@ -1,0 +1,34 @@
+{
+  "kind": "stepper_motor",
+  "id": "nema17-42-40",
+  "name": "NEMA-17 42 mm hybrid stepper, 40 mm body",
+  "wireup_type": "stepper-motor",
+  "manufacturer": "Novanta (formerly PI) NEMA 17 series",
+  "part_number": "M-1715-1.5",
+  "geometry_source": "reconstructed-from-drawing",
+  "source_url": "https://www.novantaims.com/downloads/datasheets/Nema17_motors.pdf",
+  "dimensions_mm": {
+    "frame": 42.3,
+    "body_length": 40.0,
+    "cap_length": 12.0,
+    "shaft_diameter": 5.0,
+    "shaft_length": 20.0,
+    "pilot_diameter": 22.0,
+    "pilot_length": 2.0,
+    "mount_hole_pitch": 31.0,
+    "mount_hole_diameter": 3.0,
+    "wire_exit_diameter": 6.0
+  },
+  "uncertainty": "Novanta NEMA17 drawing gives 42.3 mm frame, body lengths 34/40/48 mm, 5 mm shaft, 22 mm pilot, 31 mm mounting pattern (4x M3). Rear boss height and cable exit diameter are not tabulated; modelled from the family drawing.",
+  "mass_g": 276.0,
+  "mass_source": "NEMA-17 42 mm 40 mm-body steppers are published in the 200-280 g class; 276 g used.",
+  "material": "Laminated steel stack, aluminium end plates, black epoxy",
+  "features": {
+    "phase_count": 2,
+    "step_angle_deg": 1.8,
+    "rated_current_per_phase_a": 1.0,
+    "holding_torque_kgcm": 3.4,
+    "leads": 4,
+    "shaft_flat": true
+  }
+}

@@ -1,0 +1,308 @@
+{
+  "schema_version": 1,
+  "models": {
+    "motor-driver-l293d": [
+      {
+        "id": "l293d-dip16",
+        "name": "ST L293D PDIP-16",
+        "src": "/models/3d/l293d-dip16.glb",
+        "geometry_source": "reconstructed-from-drawing",
+        "manufacturer": "STMicroelectronics",
+        "part_number": "L293D",
+        "source_url": "https://www.st.com/resource/en/datasheet/l293d.pdf",
+        "dimensions_uncertainty": "Body 19.8 x 6.35 mm is the TI L293D DIP-16 published body size; the ST PDIP-16 package drawing gives D = 20.0 mm max and e = 2.54 mm, e1 = 17.78 mm. Modelled with D = 19.8 mm, row spacing 7.62 mm, lead length 3.6 mm; pin-1 notch is at the catalogue top-view end.",
+        "dimensions_mm": {
+          "body_length": 19.8,
+          "body_width": 6.35,
+          "body_height": 4.6,
+          "pin_pitch": 2.54,
+          "row_spacing": 7.62,
+          "pin_length": 3.6,
+          "pin_thickness": 0.6,
+          "lead_width": 0.6
+        }
+      }
+    ],
+    "servo": [
+      {
+        "id": "mg996r",
+        "name": "Tower Pro MG996R metal gear servo",
+        "src": "/models/3d/mg996r.glb",
+        "geometry_source": "reconstructed-from-drawing",
+        "manufacturer": "Tower Pro",
+        "part_number": "MG996R",
+        "source_url": "https://towerpro.com.tw/product/mg996r/",
+        "dimensions_uncertainty": "Tower Pro states 40.7 x 19.7 x 42.9 mm approx; the 42.9 mm height is modelled as 36.5 mm case + flange and 12 mm output shaft, so the assembled height with horn exceeds the published figure. Draw-table values A 42.7, B 40.9, C 37, D 20, E 54, F 26.8 are used for the mounting ears.",
+        "dimensions_mm": {
+          "body_length": 40.7,
+          "body_width": 19.7,
+          "body_height": 36.5,
+          "flange_length": 54.0,
+          "flange_width": 26.8,
+          "flange_height": 3.0,
+          "shaft_diameter": 4.8,
+          "shaft_length": 12.0,
+          "shaft_flat_mm": 1.2,
+          "horn_length": 24.0,
+          "total_height_with_horn": 42.9
+        }
+      },
+      {
+        "id": "sg90",
+        "name": "Tower Pro SG90 9 g servo",
+        "src": "/models/3d/sg90.glb",
+        "geometry_source": "reconstructed-from-drawing",
+        "manufacturer": "Tower Pro",
+        "part_number": "SG90",
+        "source_url": "https://towerpro.com.tw/product/sg90-analog/",
+        "dimensions_uncertainty": "Tower Pro lists 23 x 12.2 x 29 mm overall; the modelled body is 22.8 x 12.2 mm with the 29 mm height split into 16 mm case + flange and 10 mm output shaft. Mounting ears and boss are from the published A/B/C/D/E/F drawing table (A 30.3, B 22.7, C 27, D 12.2, E 32.3, F 17).",
+        "dimensions_mm": {
+          "body_length": 22.8,
+          "body_width": 12.2,
+          "body_height": 16.0,
+          "flange_length": 32.3,
+          "flange_width": 17.0,
+          "flange_height": 2.5,
+          "shaft_diameter": 3.0,
+          "shaft_length": 10.0,
+          "shaft_flat_mm": 1.0,
+          "horn_length": 22.0,
+          "total_height_with_horn": 34.0
+        }
+      }
+    ],
+    "arduino-nano": [
+      {
+        "id": "nano-classic-v3",
+        "name": "Arduino Nano (classic, v3)",
+        "src": "/models/3d/nano-classic-v3.glb",
+        "geometry_source": "reconstructed-from-drawing",
+        "manufacturer": "Arduino",
+        "part_number": "ABX00083",
+        "source_url": "https://docs.arduino.cc/learn/hardware/nano-pcb-guide",
+        "dimensions_uncertainty": "Arduino publishes 43.16 x 17.76 mm board (docs.arduino.cc nano PCB guide) and 43.18 x 17.78 mm on the R4 datasheet page; the v3 outline is taken as 43.18 x 17.78 mm, tolerance +/-0.1 mm. Header positions are derived from the published 2.54 mm pitch, not measured.",
+        "dimensions_mm": {
+          "length": 43.18,
+          "width": 17.78,
+          "thickness": 1.6
+        }
+      }
+    ],
+    "stepper-motor": [
+      {
+        "id": "nema17-42-40",
+        "name": "NEMA-17 42 mm hybrid stepper, 40 mm body",
+        "src": "/models/3d/nema17-42-40.glb",
+        "geometry_source": "reconstructed-from-drawing",
+        "manufacturer": "Novanta (formerly PI) NEMA 17 series",
+        "part_number": "M-1715-1.5",
+        "source_url": "https://www.novantaims.com/downloads/datasheets/Nema17_motors.pdf",
+        "dimensions_uncertainty": "Novanta NEMA17 drawing gives 42.3 mm frame, body lengths 34/40/48 mm, 5 mm shaft, 22 mm pilot, 31 mm mounting pattern (4x M3). Rear boss height and cable exit diameter are not tabulated; modelled from the family drawing.",
+        "dimensions_mm": {
+          "frame": 42.3,
+          "body_length": 40.0,
+          "cap_length": 12.0,
+          "shaft_diameter": 5.0,
+          "shaft_length": 20.0,
+          "pilot_diameter": 22.0,
+          "pilot_length": 2.0,
+          "mount_hole_pitch": 31.0,
+          "mount_hole_diameter": 3.0,
+          "wire_exit_diameter": 6.0
+        }
+      }
+    ],
+    "potentiometer": [
+      {
+        "id": "wh148-b10k",
+        "name": "WH148-1A linear 10 kOhm panel potentiometer",
+        "src": "/models/3d/wh148-b10k.glb",
+        "geometry_source": "reconstructed-from-drawing",
+        "manufacturer": "WH148 series (BI Technologies / KLS)",
+        "part_number": "WH148-1A-B103",
+        "source_url": "https://handsontec.com/dataspecs/passive/WH148%20Pot-meter.pdf",
+        "dimensions_uncertainty": "WH148 datasheet gives 16 mm class body, 7 mm shaft length, 6 mm shaft diameter, 300 deg rotation. Exact body height and lug geometry are not tabulated; modelled at 10.5 mm body height with two solder lugs at 90 deg, matching the published mechanical drawing layout.",
+        "dimensions_mm": {
+          "body_diameter": 16.0,
+          "body_height": 10.5,
+          "flange_diameter": 19.0,
+          "flange_thickness": 1.0,
+          "shaft_diameter": 6.0,
+          "shaft_length": 7.0,
+          "shaft_flat_mm": 1.2,
+          "knurl_length": 5.0,
+          "lug_thickness": 1.0,
+          "lug_length": 6.0
+        }
+      }
+    ]
+  },
+  "custom_mechanical_parts": {
+    "lipo-2s-5200-50c": [
+      {
+        "id": "lipo-2s-5200-50c",
+        "name": "2S 7.4 V 5200 mAh 50C hard-case LiPo",
+        "src": "/models/3d/lipo-2s-5200-50c.glb",
+        "geometry_source": "reconstructed-from-drawing",
+        "manufacturer": "NHX / Helios RC (same 138 x 47 x 25 mm 2S 5200 class)",
+        "part_number": "2S5200-50EC3",
+        "source_url": "https://nitrohobbies.com/2s5200-50ec3-h/",
+        "dimensions_uncertainty": "Multiple 2S 5200 mAh hard-case packs publish 138 x 47 x 25 mm (NHX 2S5200-50EC3 and Helios RC 139.8 x 47.8 x 25.5). Modelled at 138 x 47 x 25 mm; cell chemistry pouch curvature is approximated.",
+        "dimensions_mm": {
+          "length": 138.0,
+          "width": 47.0,
+          "height": 25.0
+        }
+      }
+    ],
+    "quicrun-540-30t": [
+      {
+        "id": "quicrun-540-30t",
+        "name": "Hobbywing QuicRun brushed 540-30T 1/10 motor",
+        "src": "/models/3d/quicrun-540-30t.glb",
+        "geometry_source": "reconstructed-from-drawing",
+        "manufacturer": "Hobbywing",
+        "part_number": "30404313",
+        "source_url": "https://www.hobbywing.com/en/products/quicrunbrushed540555",
+        "dimensions_uncertainty": "Hobbywing publishes O.D. 36 mm, length 53.2 mm, shaft 3.175 mm, 168 g for the 540-30T. Mount tab geometry (21 mm pitch, M3) follows the standard 540 pattern used across RC brushed motors and is not a Hobbywing drawing value.",
+        "dimensions_mm": {
+          "can_diameter": 36.0,
+          "can_length": 53.2,
+          "endbell_diameter": 37.0,
+          "endbell_length": 9.0,
+          "shaft_diameter": 3.175,
+          "shaft_length": 12.0,
+          "mount_hole_pitch": 21.0,
+          "mount_hole_diameter": 3.2,
+          "mount_tab_width": 6.0
+        }
+      }
+    ],
+    "quicrun-wp-1060": [
+      {
+        "id": "quicrun-wp-1060",
+        "name": "Hobbywing QuicRun WP-1060 1/10 brushed ESC",
+        "src": "/models/3d/quicrun-wp-1060.glb",
+        "geometry_source": "reconstructed-from-drawing",
+        "manufacturer": "Hobbywing",
+        "part_number": "HWA30120201",
+        "source_url": "https://www.greathobbies.com/manuals/h/hbw/hbw30120201_manual.pdf",
+        "dimensions_uncertainty": "Hobbywing manual dimension table: WP-1060-BRUSHED 36.5 x 32 x 18 mm, 39 g. Modelled at 35.5 x 32.18 mm using the retailer spec table; capacitor block height is not published and is modelled at 6 mm above the case.",
+        "dimensions_mm": {
+          "length": 35.5,
+          "width": 32.18,
+          "height": 18.0,
+          "capacitor_block_length": 16.0,
+          "capacitor_block_width": 8.0,
+          "capacitor_block_height": 6.0
+        }
+      }
+    ],
+    "rc-car-1to10-chassis": [
+      {
+        "id": "rc-car-1to10-chassis",
+        "name": "1/10 scale custom RC chassis assembly (design dimensions, not a manufacturer product)",
+        "src": "/models/3d/rc-car-1to10-chassis.glb",
+        "geometry_source": "custom-design",
+        "manufacturer": "Custom concept",
+        "dimensions_uncertainty": "Every chassis dimension is a design decision recorded here, not a measurement of a real product. Tire and motor mounting positions are chosen to satisfy the sourced part envelopes; the spring rates, camber, ackermann and tire friction below are design targets with no measured source and must not be read as calibrated.",
+        "dimensions_mm": {
+          "ackermann_deg": 22.0,
+          "battery_tray_position": [
+            -5,
+            0,
+            47.5
+          ],
+          "body_height": 95.0,
+          "body_length": 300.0,
+          "body_width": 165.0,
+          "camber_deg": -2.0,
+          "center_diff_diameter": 42.0,
+          "chassis_length": 260.0,
+          "chassis_width": 150.0,
+          "electronics_deck_position": [
+            35,
+            0,
+            47.5
+          ],
+          "front_axle_diameter": 3.0,
+          "front_axle_length": 200.0,
+          "gear_module_mm": 0.8,
+          "kingpin_diameter": 3.0,
+          "kingpin_height": 22.0,
+          "lightening_hole_diameter": 12.0,
+          "lower_plate_thickness": 2.5,
+          "motor_mount_position": [
+            -60,
+            0,
+            45
+          ],
+          "motor_offset_from_centerline": 22.0,
+          "pinion_teeth": 12,
+          "plate_gap": 40,
+          "rear_axle_diameter": 5.0,
+          "rear_axle_length": 210.0,
+          "ride_height": 8.0,
+          "servo_horn_offset": 12.0,
+          "servo_mount_position": [
+            45,
+            0,
+            92.5
+          ],
+          "spur_pitch_diameter": 40.0,
+          "spur_teeth": 50,
+          "standoff_diameter": 6.0,
+          "steering_arm_length": 22.0,
+          "tie_rod_length": 48.0,
+          "toe_deg": 0.0,
+          "track_front": 190.0,
+          "track_rear": 200.0,
+          "upper_plate_thickness": 2.0,
+          "wheelbase": 254.0,
+          "wheel_arch_clearance": 4.0,
+          "lower_plate_height": 28
+        }
+      }
+    ],
+    "wheel-front-59mm": [
+      {
+        "id": "wheel-front-59mm",
+        "name": "1/10 scale 59 x 26 mm road tire on hex-12 rim",
+        "src": "/models/3d/wheel-front-59mm.glb",
+        "geometry_source": "custom-design",
+        "manufacturer": "Custom concept (dimensioned from published 1/10 tire ranges)",
+        "source_url": "https://www.racingline-rc.com/Tyres-and-Rims",
+        "dimensions_uncertainty": "Matrix 1/10 Formula tires publish 59 mm diameter and 30 mm width; eXcelerate 1/10 fronts publish 62 x 29 mm; Hot Race 1/10 fronts publish 59 mm. Modelled at 59 x 26 mm to fit a 59 mm rolling diameter with a 12 mm hex hub as listed by 1/10 wheel sets. Compound and profile are design choices, not measured.",
+        "dimensions_mm": {
+          "outer_diameter": 59.0,
+          "width": 26.0,
+          "rim_diameter": 21.6,
+          "rim_width": 22.0,
+          "hub_hex": 12.0,
+          "tire_thickness": 4.0,
+          "shoulder_radius": 6.0
+        }
+      }
+    ],
+    "wheel-rear-68mm": [
+      {
+        "id": "wheel-rear-68mm",
+        "name": "1/10 scale 68 x 26 mm drive tire on hex-12 rim",
+        "src": "/models/3d/wheel-rear-68mm.glb",
+        "geometry_source": "custom-design",
+        "manufacturer": "Custom concept (dimensioned from published 1/10 tire ranges)",
+        "source_url": "https://www.lightningrc.com/110-Foam-Tires-4PCS_p_2648.html",
+        "dimensions_uncertainty": "LightningRC 1/10 foam tires publish 68 mm diameter, 26 mm width, 12 mm hex. Those figures are used directly for the rear drive tire; tread pattern and carcass are design choices.",
+        "dimensions_mm": {
+          "outer_diameter": 68.0,
+          "width": 26.0,
+          "rim_diameter": 24.0,
+          "rim_width": 22.0,
+          "hub_hex": 12.0,
+          "tire_thickness": 4.5,
+          "shoulder_radius": 7.0
+        }
+      }
+    ]
+  }
+}

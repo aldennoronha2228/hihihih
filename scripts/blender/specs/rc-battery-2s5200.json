@@ -1,0 +1,25 @@
+{
+  "kind": "rc_battery",
+  "id": "lipo-2s-5200-50c",
+  "name": "2S 7.4 V 5200 mAh 50C hard-case LiPo",
+  "wireup_type": null,
+  "catalog_status": "not-in-wireup-catalog",
+  "manufacturer": "NHX / Helios RC (same 138 x 47 x 25 mm 2S 5200 class)",
+  "part_number": "2S5200-50EC3",
+  "geometry_source": "reconstructed-from-drawing",
+  "source_url": "https://nitrohobbies.com/2s5200-50ec3-h/",
+  "dimensions_mm": { "length": 138.0, "width": 47.0, "height": 25.0 },
+  "uncertainty": "Multiple 2S 5200 mAh hard-case packs publish 138 x 47 x 25 mm (NHX 2S5200-50EC3 and Helios RC 139.8 x 47.8 x 25.5). Modelled at 138 x 47 x 25 mm; cell chemistry pouch curvature is approximated.",
+  "mass_g": 268.0,
+  "mass_source": "NHX Muscle Pack 2S 5200 mAh 50C: 268 g.",
+  "material": "LiPo pouch cells in a hard plastic shell, silicone pad",
+  "features": {
+    "nominal_voltage": 7.4,
+    "full_charge_voltage": 8.4,
+    "capacity_mah": 5200,
+    "discharge_c": 50,
+    "cells": 2,
+    "connector": "EC3 with Tamiya lead",
+    "balance_connector": "JST-XH"
+  }
+}
