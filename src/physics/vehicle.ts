@@ -159,7 +159,10 @@ export function escCommand(pulseUs: number, esc: EscSpec): {
   if (pulseUs <= esc.neutralPulseUs) {
     const span = esc.neutralPulseUs - esc.minPulseUs
     const fraction = span > 0 ? (esc.neutralPulseUs - pulseUs) / span : 0
-    return { throttle: clamp(fraction, 0, 1), reverse: fraction > 0.02, brake: false, voltage: 0 }
+    // Below neutral a real ESC reverses the motor's polarity, which in this
+    // model is the same as applying the drive voltage with the opposite sign.
+    return { throttle: clamp(fraction, 0, 1), reverse: fraction > 0.02, brake: false,
+             voltage: -esc.driveVoltage * clamp(fraction, 0, 1) }
   }
   const span = esc.maxPulseUs - esc.neutralPulseUs
   const fraction = span > 0 ? (pulseUs - esc.neutralPulseUs) / span : 0
@@ -294,8 +297,11 @@ export class RcVehicle {
     if (Math.abs(loadTorque) > Math.abs(wheelTorque) && Math.abs(state.motorOmega) < 1e-3) {
       state.motorOmega = 0
     }
+    // The motor may run backwards, but never past the speed where its own
+    // back-EMF equals the supply voltage.
+    const freeSpeed = command.voltage !== 0 ? Math.abs(command.voltage) / ke : 0
     const motorAcceleration = (torque - loadTorque) / motor.inertia
-    state.motorOmega = Math.max(0, state.motorOmega + motorAcceleration * dt)
+    state.motorOmega = clamp(state.motorOmega + motorAcceleration * dt, -freeSpeed, freeSpeed)
     state.wheelOmega = state.motorOmega / drivetrain.gearRatio
     state.motorCurrent = current
     state.motorTorque = torque

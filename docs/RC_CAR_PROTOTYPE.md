@@ -1,70 +1,76 @@
 # RC car prototype: what exists, what is verified, what is missing
 
-WireUp project `dc7ee0d488ab414aa4c79fd4113d3fd4` ("An Rc Car"), revision 9.
+WireUp project `dc7ee0d488ab414aa4c79fd4113d3fd4` ("An Rc Car"), revision 13.
 
 ## Circuit (verified)
 
 - Board: Arduino Nano (ATmega328P), chosen because the catalog's `servo` part is only simulated on
   Uno/Nano/Mega.
 - Catalog parts: two `potentiometer` inputs (throttle -> A0, steering -> A1), `servo` on D3,
-  `motor-driver-l293d` on D6-D11 with the motor rail on VIN, and a `stepper-motor` as the drive
-  actuator.
-- 25 wires written in one atomic `wire_circuit` batch. Validation returned `valid: true` with no
-  errors and no warnings; the 5 V and GND nets resolved to single rails.
-- Firmware: pot -> servo angle (65-115 deg, centre 90 deg) and -> a full-step two-phase sequence
-  through the L293D with the step interval mapped from throttle magnitude.
-- `compile_firmware` ran the real Arduino CLI (`arduino:avr:nano:cpu=atmega328`): 4094 bytes of
-  flash, 246 bytes of RAM, 0 errors, Intel HEX artifact `7ee1fd273b11427aabbbab64bd8a0fc5`.
+  `motor-driver-l293d`, and a `stepper-motor` as the drive actuator on the canvas.
+- Pin map: D6 -> EN1, D7/D8 -> IN1/IN2, D10 -> IN3, D9 -> IN4, D11 -> EN2. D6 and D11 are Timer0
+  PWM outputs; EN2 was deliberately moved onto D11 so both drive channels get hardware PWM.
+- Wire validation returned `valid: true` with no errors and no warnings after the rewire.
+- `compile_firmware` ran the real Arduino CLI (`arduino:avr:nano:cpu=atmega328`): 4150 bytes of
+  flash, 229 bytes of RAM, 0 errors, artifact `b4c69dba2dc74e03be9eaec751f14177`.
 
-## Models (built from dimensioned specs)
+## Firmware -> physics link (this is the part that makes it an RC car)
 
-See `docs/MODEL_PIPELINE.md` for the pipeline and the per-part source list. Eleven parts plus the
-assembly are exported; every catalog-typed part is dimensioned from a manufacturer datasheet and
-carries its source URL and its uncertainty in `public/models/3d/manifest.json`.
+The firmware no longer steps the L293D. It does what a real H-bridge does: direction on
+IN1/IN2 and IN3/IN4, **speed from hardware PWM on the EN pins**. That matters because the AVR
+simulator polls the real OCR registers and publishes the duty cycle
+(`pollPwmRegisters` -> `pinManager.updatePwm` in vendor/velxio/frontend/src/simulation/
+AVRSimulator.ts). The throttle the physics sees is therefore the duty the firmware wrote, at the
+emulator's own clock, not a scripted value.
 
-## Physics (implemented, partly verified)
+`src/physics/firmware-drive.ts` is the bridge: duty on D6 becomes throttle, duty on D3 becomes the
+servo pulse width over a 20 ms frame, direction comes from the IN pins, and the vehicle integrates
+on simulated time only. If the emulator clock does not advance, nothing moves - there is a test
+for exactly that.
 
-`src/physics/vehicle.ts` + `bin/verify-vehicle.ts`, run with
-`node_modules\.bin\jiti bin/verify-vehicle.ts`. All checks pass. The verified chain is:
+## Physics (implemented, verified where it is claimed)
 
-ESC pulse (1.0-2.0 ms) -> drive voltage -> brushed motor V = I*R + Ke*w -> torque scaled by the
-4.167:1 gear train at 85% efficiency -> tire slip -> force saturating at mu*N -> chassis
-integration. Verified behaviours: ESC neutral/full/reverse mapping, servo endpoints and its
-published 0.17 s/60 deg speed limit, standstill staying still, the motor reaching 98% of its
-computed no-load speed, the gearbox reducing speed by the specified ratio, a drag-limited top
-speed of 7.72 m/s against an ideal 7.97 m/s, no energy creation, steering direction, and finite
-state under abuse.
+`src/physics/vehicle.ts` + `src/physics/firmware-drive.ts`, run with
+`node_modules\.bin\jiti bin/verify-vehicle.ts`. 19 checks pass.
 
-Two physics bugs were found and fixed by these checks, both of which produced wrong motion while
-looking correct:
+Verified: ESC mapping in both directions, servo endpoints and its published 0.17 s/60 deg speed
+limit, standstill, the motor reaching 98% of its computed no-load speed, the 4.167:1 gearbox, a
+drag-limited top speed of 7.72 m/s against an ideal 7.97 m/s, no energy creation, steering
+direction, tire force saturation, finite state under abuse, and the firmware-driven run: zero duty
+leaves the car still, half duty reaches 3.86 m/s, full duty 7.72 m/s, reverse direction produces
+-7.72 m/s, and a stalled clock produces no motion.
 
-1. The SI torque constant was computed as `kv * 2*pi/60` instead of `9.55 / kv`, which overstated
-   torque by four orders of magnitude and made the motor unusable.
-2. Yaw inertia came out of the profile in gram-units (0.015 kg*m^2 became 15), so the chassis
-   behaved as if it were ballast.
+Bugs these checks caught, all of which produced wrong motion while looking correct:
 
-A centre of mass 6 mm behind the wheelbase midpoint also made the vehicle oversteer-unstable in the
-tire model; it now sits 5 mm ahead of the midpoint, which is where a car with its motor behind the
-axle belongs.
+1. The SI torque constant was `kv * 2*pi/60` instead of `9.55 / kv`, overstating torque by four
+   orders of magnitude.
+2. Yaw inertia was emitted in gram units, so the chassis behaved as if it were ballast.
+3. ESC reverse supplied zero drive voltage, so the car could never reverse.
+4. The motor speed clamp used the signed supply voltage, pinning reverse speed to zero.
+5. A centre of mass 6 mm behind the wheelbase midpoint made the vehicle oversteer-unstable; it now
+   sits 5 mm ahead, which is where a car with its motor behind the axles belongs.
+
+## Models
+
+See `docs/MODEL_PIPELINE.md`. Eleven dimensioned parts plus the assembly are exported; every
+catalog-typed part is dimensioned from a manufacturer datasheet and carries its source URL and
+uncertainty in `public/models/3d/manifest.json`.
 
 ## Known limitations, stated plainly
 
 - **Lateral dynamics are not a validated handling model.** Under large lock at low speed the
   single-track model develops slip angles past 0.5 rad and stops predicting a believable cornering
   line. It stays finite, but it must not be read as a validated tire model. It needs a friction
-  ellipse and the `m*vx*r_dot` / `m*vy*r_dot` yaw terms before it can be.
-- **The physics profile is not yet consumed by the app.** The viewer renders the manifest; it does
-  not load `profiles.json`.
-- **Firmware PWM is not yet wired to the vehicle simulator.** The linchpin used for the drone work
-  is real and available - `pollPwmRegisters` publishes the actual AVR OCR duty cycle - but the RC
-  firmware drives the L293D with `digitalWrite` stepping, so there is no continuous throttle duty
-  to read. Until the firmware emits a servo-style throttle pulse, nothing upstream can drive this
-  model.
+  ellipse and the `m*vx*r_dot` / `m*vy*r_dot` yaw terms.
+- **The 3D view still does not render motion.** `src/components/hardware-3d-view.tsx` draws the
+  published models and states in its own footnote that it does not simulate physics. Nothing calls
+  `RcDriveBridge` yet. That is the remaining gap between "the physics works" and "the car drives on
+  screen".
 - **Catalog gaps.** WireUp has no brushed DC motor, no ESC and no radio receiver. The circuit uses
   the catalog `stepper-motor` through the L293D as an honest stand-in and says so in the firmware
-  header; the real motor, ESC and receiver are unmodelled integration points and are recorded as
-  such in `profiles.json` under `integration_gaps`.
+  header; the real motor, ESC and receiver are unmodelled integration points, recorded as
+  `integration_gaps` in `profiles.json`.
 - **Not verified in a browser.** `run_simulation` needs a hardware workspace open on the project in
-  a browser; none was, so no runtime result is claimed.
+  a browser; none was, so no runtime measurement is claimed. The compile artifact is real.
 - `public/models/3d/esp32-s3.glb` is an older asset from the drone work with no spec behind it. It
-  is no longer referenced by the manifest and should be either given a spec or removed.
+  is no longer referenced by the manifest.

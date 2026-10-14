@@ -194,5 +194,46 @@ check('Integration stays finite through abuse', finite,
  */
 console.log('NOTE  lateral model: documented limitation, not a verified behaviour')
 
+
+/*
+ * Firmware-driven run: the throttle now comes from a PWM duty cycle exactly as
+ * pollPwmRegisters publishes it from the AVR OCR register, not from a scripted
+ * throttle. This is the check that the RC car actually moves because the
+ * firmware told it to.
+ */
+const { RcDriveBridge, dutyToThrottle, dutyToServoPulse } = await import('../src/physics/firmware-drive')
+check('PWM duty maps to throttle', Math.abs(dutyToThrottle(0.5) - 0.494) < 0.01 &&
+  dutyToThrottle(0) === 0 && dutyToThrottle(1) === 1,
+  `duty 0.5 -> ${dutyToThrottle(0.5).toFixed(3)}, duty 0 -> 0, duty 1 -> 1`)
+check('Servo duty maps to a 20 ms frame width', Math.abs(dutyToServoPulse(0.075) - 1500) < 1,
+  `duty 0.075 -> ${dutyToServoPulse(0.075).toFixed(0)} us (centre pulse)`)
+function drive(duty: number, seconds: number, direction = 1) {
+  const bridge = new RcDriveBridge(spec, { throttlePin: 6, steeringPin: 3 })
+  bridge.setDirection(direction)
+  const stepMs = 16
+  for (let elapsed = 0; elapsed < seconds * 1000; elapsed += stepMs) {
+    bridge.update({ throttle: { duty, timeMs: elapsed }, steering: { duty: 0.075, timeMs: elapsed } },
+                  elapsed)
+  }
+  return bridge.vehicle
+}
+const idle = drive(0, 3)
+check('Idle duty leaves the car still', idle.speed < 1e-6,
+  `${idle.speed.toFixed(4)} m/s after 3 s at zero duty`)
+const half = drive(0.5, 12)
+const fullThrottle = drive(1.0, 12)
+check('Half throttle is slower than full throttle and both move',
+  half.speed > 0.5 && fullThrottle.speed > half.speed,
+  `half duty ${half.speed.toFixed(2)} m/s, full duty ${fullThrottle.speed.toFixed(2)} m/s`)
+const reversed = drive(1.0, 6, -1)
+check('Reversing the drive pins reverses the car', reversed.state.vx < 0,
+  `body forward velocity ${reversed.state.vx.toFixed(2)} m/s with direction -1`)
+const paused = new RcDriveBridge(spec, { throttlePin: 6, steeringPin: 3 })
+paused.update({ throttle: { duty: 1, timeMs: 1000 } }, 1000)
+const before = paused.vehicle.speed
+const state = paused.update({}, 1000)
+check('A stalled emulator clock cannot invent motion', !state.advanced && paused.vehicle.speed === before,
+  'replaying the same simulated timestamp performs no integration')
+
 console.log(`\n${failures === 0 ? 'all checks passed' : `${failures} check(s) failed`}`)
 process.exit(failures === 0 ? 0 : 1)
