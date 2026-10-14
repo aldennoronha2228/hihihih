@@ -14,6 +14,7 @@ import { WorkspaceLoading } from '@/components/ui/workspace-loading'
 const Preview = lazy(() => import('@/components/demo'))
 const SchematicStudio = lazy(() => import('@/components/schematic-studio').then(module => ({ default: module.SchematicStudio })))
 const HardwareInstruments = lazy(() => import('@/components/hardware-instruments').then(module => ({ default: module.HardwareInstruments })))
+const Hardware3DView = lazy(() => import('@/components/hardware-3d-view').then(module => ({ default: module.Hardware3DView })))
 const HardwareWorkspace = lazy(() => import('@/components/hardware-workspace').then(module => ({ default: module.HardwareWorkspace })))
 
 function ProjectPage() {
@@ -21,16 +22,20 @@ function ProjectPage() {
   const location = useLocation()
   const initialPrompt = (location.state as { initialPrompt?: string } | null)?.initialPrompt
   const setupGuidance = (location.state as { setupGuidance?: string } | null)?.setupGuidance
+  const sampleId = (location.state as { sampleId?: string } | null)?.sampleId
+    ?? new URLSearchParams(location.search).get('sample')
+    ?? undefined
   const onProjectChange = useCallback((next: HardwareProject | null) => setProject(next), [])
   const [runtime, setRuntime] = useState<HardwareRuntime | null>(null)
   const [results, setResults] = useState<RuntimeResults | null>(null)
-  const [view, setView] = useState<'circuit' | 'schematic'>('circuit')
+  const [view, setView] = useState<'circuit' | 'schematic' | '3d'>('circuit')
   const [analog, setAnalog] = useState<AnalogSolveResult | null>(null)
   const [solving, setSolving] = useState(false)
   const [solveError, setSolveError] = useState('')
   const [catalog, setCatalog] = useState<CatalogComponent[]>([])
   const [selected, setSelected] = useState<string>()
   useEffect(() => { hardwareApi.catalog('', 200).then(result => setCatalog(result.components)).catch(() => {}) }, [])
+  useEffect(() => { if (sampleId === 'robot-car-obstacle-avoider') setView('3d') }, [sampleId])
   const solve = async (analysis: 'dc' | 'transient') => {
     if (!project || solving) return
     setSolving(true); setSolveError(''); setView('schematic')
@@ -66,6 +71,7 @@ function ProjectPage() {
       onMove={(id, x, y) => mutate('modify_component', { id, x, y })} onAddComponent={addComponent} onTune={(id, properties) => mutate('modify_component', { id, properties })}
       onUndo={undo} onReload={() => void reload()} selectedId={selected} onSelect={setSelected} onConnect={(from, to) => mutate('connect_wire', { from, to })}
       runtime={runtime} results={results} solveError={solveError} /></Suspense> : null}
+    modelViewSlot={context => <Suspense fallback={<div className="hw-3d-loading">Loading the 3D assembly…</div>}><Hardware3DView {...context} catalog={catalog} conceptAssembly={sampleId} /></Suspense>}
     oscilloscopeSlot={<Suspense fallback={null}><HardwareInstruments runtime={runtime} results={results} analogResult={analog?.projectRevision === project?.revision ? analog : null} /></Suspense>}
     chatSlot={<ChatApp key={project?.id || 'none'} embedded initialPrompt={initialPrompt} setupGuidance={setupGuidance} projectId={project?.id} runtimeToken={project?.runtime_token} />} /></Suspense>
 }

@@ -1,0 +1,141 @@
+{
+  "mechanical_approach": "Differential drive: two driven wheels and one passive rear ball caster. No steering servo is used; left/right wheel speed differences turn the chassis.",
+  "defaults": [
+    "Arduino Uno R3 is selected because this repository has a verified Uno firmware runtime and HC-SR04 timed echo model. The screenshot's controller looks ESP32-like, but the current ESP32 path cannot simulate this sensor behavior.",
+    "Indoor, low-speed classroom robot; stop and reverse before a timed differential turn when an obstacle is closer than 25 cm.",
+    "Four alkaline AA cells form a nominal 6 V motor pack. USB powers the Uno during development; share ground with the motor driver. A holder is required physically and is not modeled in the catalog."
+  ],
+  "physical_parts": [
+    {
+      "name": "Pololu 100:1 Micro Metal Gearmotor LP 6V",
+      "manufacturer": "Pololu",
+      "part_number": "992",
+      "quantity": 2,
+      "catalog_status": "external integration point; not a WireUp catalog type",
+      "dimensions_mm": {
+        "gearbox_body": [
+          10,
+          12,
+          25
+        ],
+        "shaft_diameter": 3,
+        "shaft_length": 9
+      },
+      "mass_g_each": 9.5,
+      "rated_voltage_v": 6,
+      "no_load_speed_rpm_at_6v": 130,
+      "no_load_current_a_at_6v": 0.04,
+      "stall_current_a_at_6v": 0.36,
+      "stall_current_note": "Theoretical extrapolation; avoid stalling. Each channel is below the L293D's 600 mA continuous channel rating by published values, but thermal and startup behavior are not simulated.",
+      "source_url": "https://www.pololu.com/product/992"
+    },
+    {
+      "name": "Pololu Wheel 70x8mm Pair - Black",
+      "manufacturer": "Pololu",
+      "part_number": "1425",
+      "quantity": 1,
+      "catalog_status": "external mechanical part; not a WireUp catalog type",
+      "dimensions_mm_each": [
+        70,
+        8
+      ],
+      "shaft_interface": "3 mm D-shaft",
+      "source_url": "https://www.pololu.com/product/1425/specs"
+    },
+    {
+      "name": "Pololu Ball Caster with 3/8 inch Metal Ball",
+      "manufacturer": "Pololu",
+      "part_number": "951",
+      "quantity": 1,
+      "catalog_status": "external mechanical part; exact model unresolved in this session",
+      "ball_diameter_mm": 9.525,
+      "assembled_height_mm": {
+        "minimum": 10.16,
+        "maximum": 15.24
+      },
+      "mounting_hole_spacing_mm": 13.462,
+      "source_url": "https://www.pololu.com/product/951"
+    },
+    {
+      "name": "Custom chassis plate",
+      "manufacturer": "Custom concept",
+      "part_number": null,
+      "quantity": 1,
+      "catalog_status": "custom geometry not yet authored in Blender",
+      "design_envelope_mm": [
+        160,
+        100,
+        3
+      ],
+      "dimensions_status": "initial packaging assumption; adjust to sourced motor mounts, battery holder, and chosen fasteners before fabrication"
+    },
+    {
+      "name": "HC-SR04 ultrasonic module",
+      "manufacturer": "Generic HC-SR04-compatible module",
+      "part_number": "HC-SR04",
+      "quantity": 1,
+      "catalog_status": "WireUp catalog component; exact vendor variant not selected",
+      "dimensions_mm": [
+        45,
+        20,
+        15
+      ],
+      "source_url": "https://cdn.sparkfun.com/datasheets/Sensors/Proximity/HCSR04.pdf",
+      "dimension_note": "Common module drawing; height varies by vendor, and the exact physical supplier remains unselected."
+    },
+    {
+      "name": "ST L293D dual H-bridge, DIP-16",
+      "manufacturer": "STMicroelectronics",
+      "part_number": "L293D",
+      "quantity": 1,
+      "catalog_status": "WireUp catalog type motor-driver-l293d; model available as a catalog component",
+      "continuous_output_current_ma_per_channel": 600,
+      "source_url": "https://www.st.com/resource/en/datasheet/l293d.pdf"
+    },
+    {
+      "name": "Four-cell AA battery holder",
+      "manufacturer": "Unselected",
+      "part_number": null,
+      "quantity": 1,
+      "catalog_status": "physical integration point; exact holder not selected",
+      "dimensions_status": "measure the selected holder and mounting features before chassis design"
+    },
+    {
+      "name": "AA alkaline cell",
+      "manufacturer": "Unselected",
+      "part_number": null,
+      "quantity": 4,
+      "catalog_status": "four cells in series are an initial 6 V nominal motor-pack assumption",
+      "dimensions_status": "cell brand, capacity, current capability and loaded voltage not selected"
+    },
+    {
+      "name": "Solderless breadboard or L293D carrier",
+      "manufacturer": "Unselected",
+      "part_number": null,
+      "quantity": 1,
+      "catalog_status": "external integration point required to mount/wire the DIP-16 driver during prototyping",
+      "dimensions_status": "exact board or carrier footprint unselected; measure before packaging"
+    }
+  ],
+  "unresolved": [
+    "WireUp has no brushed DC motor or ball-caster component types, so the two Pololu motors and caster are documented external integrations and have no circuit pins or per-part 3D exports.",
+    "L293D, battery, chassis, wheels, and sensor do not form a vehicle-dynamics simulation in the current runtime. Only the Uno firmware and HC-SR04 timed echo path are in the supported simulator scope.",
+    "Blender MCP is not connected in this session; no car chassis, exact component CAD, collision shapes, or Blender exports were generated.",
+    "Vehicle mass, center of mass, inertia, tire friction, caster drag, motor heating, driver voltage drop under load, and contact behavior remain unmeasured. Do not claim physical vehicle simulation."
+  ],
+  "firmware_defaults": {
+    "initial_pwm": 120,
+    "obstacle_threshold_cm": 25,
+    "echo_timeout_us": 30000,
+    "echo_timeout_behavior": "Disable both motor enables, print timeout, and retry after 60 ms.",
+    "maneuver": "Stop 100 ms, reverse 250 ms, pivot 350 ms, then stop and resume sensing.",
+    "status": "Compile checked; PWM, timing, and obstacle behavior require physical tuning."
+  },
+  "compile_evidence": {
+    "tool": "Arduino CLI 1.4.1",
+    "board": "arduino:avr:uno",
+    "core": "Arduino AVR Boards 1.8.8",
+    "result": "success; real HEX artifact produced; no diagnostics",
+    "source_sha256": "412a13acb630d34d758467b02d1f8ee6d3a240ced2edbfad18e598c109d611fa"
+  }
+}

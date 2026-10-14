@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from backend.hardware import BOARD_CONFIG, HardwareService, create_router as hardware_router
 from backend.sample_projects import (
-    EXAMPLES_PATH, STARTER_IDS, SampleCatalog, create_copy, create_router,
+    CUSTOM_STARTER_IDS, EXAMPLES_PATH, STARTER_IDS, SampleCatalog, create_copy, create_router,
     example_source, normalize_template, router, service,
 )
 from backend.tests.test_hardware import FakeCompiler
@@ -39,10 +39,10 @@ def test_catalog_is_readonly_complete_and_truthful(client, hwservice):
     assert first.headers['cache-control'] == 'no-store'
     assert client.get('/api/hardware/samples').json() == first.json()
     samples = first.json()['samples']
-    assert [sample['id'] for sample in samples] == list(STARTER_IDS)
+    assert [sample['id'] for sample in samples] == [*STARTER_IDS, *CUSTOM_STARTER_IDS]
     assert hwservice.list_projects()['projects'] == []
     assert not hwservice.data_dir.exists()
-    for sample in samples:
+    for sample in samples[:len(STARTER_IDS)]:
         assert sample['available']
         assert sample['simulation'] == 'browser'
         assert sample['verification_status'] == {
@@ -53,6 +53,15 @@ def test_catalog_is_readonly_complete_and_truthful(client, hwservice):
         assert sample['requirements']['libraries'] == []
         assert {'parts', 'wiring', 'pins', 'firmware', 'libraries', 'instructions', 'verification'} <= sample['requirements'].keys()
         assert not sample['provenance']['source_modified']
+    car = samples[-1]
+    assert car['id'] == 'robot-car-obstacle-avoider'
+    assert car['available'] and car['compile_supported'] and not car['simulation_ready']
+    assert car['verification_status']['canonical_validation'] == 'passed'
+    assert car['verification_status']['real_compile'] == 'passed'
+    assert not car['verification_status']['simulation_verified']
+    assert car['requirements']['external_parts']
+    assert car['provenance']['unresolved']
+    assert car['provenance']['compile_evidence']['source_sha256'] == car['requirements']['firmware']['source_sha256']
 
 
 @pytest.mark.parametrize('sample_id', STARTER_IDS)
@@ -121,6 +130,25 @@ def test_pico_blink_onboard_adaptation(client):
     summary = next(sample for sample in client.get('/api/hardware/samples').json()['samples'] if sample['id'] == 'pico-blink')
     assert 'GP25' in summary['provenance']['adaptations'][0]
     assert not summary['provenance']['source_modified']
+
+
+def test_robot_car_starter_is_editable_and_states_simulation_gaps(client):
+    summary = next(sample for sample in client.get('/api/hardware/samples').json()['samples']
+                   if sample['id'] == 'robot-car-obstacle-avoider')
+    assert summary['board'] == 'arduino-uno'
+    assert summary['simulation_ready'] is False
+    project = client.post('/api/hardware/samples/robot-car-obstacle-avoider/open')
+    assert project.status_code == 200, project.text
+    project = project.json()
+    assert project['board'] == 'arduino-uno'
+    assert {'hc-sr04', 'motor-driver-l293d', 'battery-aa'} <= {part['type'] for part in project['components']}
+    assert 'void loop()' in project['firmware']['source']
+    assert 'ultrasonic_timeout; drive stopped' in project['firmware']['source']
+    assert 'DRIVE_PWM = 120' in project['firmware']['source']
+    assert 'L293D' in project['setup_guidance']
+    assert 'vehicle-dynamics' in project['setup_guidance']
+    assert 'timeout' in project['setup_guidance']
+    assert 'Partial support only' in project['setup_guidance']
 
 
 @pytest.mark.parametrize('sample_id,scope', [

@@ -457,14 +457,16 @@ def test_timeout_active_tool_has_matching_error_end(service, monkeypatch):
     assert closed == [True]
 
 
-def test_initial_build_asks_mcqs_and_pauses_without_hardware(service):
+def test_initial_build_can_ask_only_focused_questions_and_pauses_without_hardware(service):
     questions = questionnaire()
     model = FakeModel([
         [tool('ask_project_questions', questions, 'questions')],
         [RuntimeError('The agent must pause before another model call.')],
     ])
     events = collect(model, project_id='current', history=[HumanMessage(content='Build a blinking LED circuit')])
-    assert [item.name for item in model.tools] == ['ask_project_questions']
+    assert 'ask_project_questions' in model.tool_sets[0]
+    assert 'assess_project_feasibility' in model.tool_sets[0]
+    assert not set(agent._MUTATIONS) & model.tool_sets[0]
     assert model.tool_choice == 'required'
     assert service.calls == []
     activity = [item for item in events if item['type'] != 'text']
@@ -536,10 +538,10 @@ def test_mutation_compile_and_run_require_user_confirmation(service, name, args)
 def test_initial_build_rejects_unbound_hardware_tool(service):
     model = FakeModel([[tool('read_project', {})], [AIMessageChunk(content='No changes were made.')]])
     events = collect(model, project_id='current', history=[HumanMessage(content='Build an LED circuit')])
-    assert service.calls == []
+    assert [call[1] for call in service.calls] == ['read_project']
     end = next(item for item in events if item['type'] == 'step_end')
-    assert end['status'] == 'error'
-    assert 'ask_project_questions first' in end['output']
+    assert end['status'] == 'success'
+    assert 'without executing the requested build' in json.dumps(events)
     assert events[-1]['status'] == 'error'
 
 
@@ -629,19 +631,34 @@ def test_injected_timeout_bound_cancels_model(service, monkeypatch):
     assert requested == [0.1]
 
 
-def test_empty_project_injects_first_canonical_board_question(service):
+def test_explicit_board_question_is_not_injected_or_rewritten(service):
     service.board = 'unselected'
-    model = FakeModel([[tool('ask_project_questions', questionnaire())]])
+    question = {'id': 'behavior', 'question': 'How should it avoid obstacles?', 'options': [
+        {'id': 'stop', 'label': 'Stop'}, {'id': 'reverse', 'label': 'Reverse and turn'},
+    ]}
+    model = FakeModel([[tool('ask_project_questions', {'summary': 'One actual behavior choice.', 'questions': [question]})]])
     events = collect(model, project_id='current', history=[HumanMessage(content='Build a esp32-s3 circuit')])
     questions = next(event['questions'] for event in events if event['type'] == 'questions')
-    assert questions[0]['id'] == 'board'
-    options = questions[0]['options']
-    assert options[0]['id'] == 'esp32-s3'
-    assert len(options) <= 6
-    assert all(option['id'] in agent._board_catalog() or option['id'] == 'none' for option in options)
-    assert any(option['id'] == 'none' for option in options)
+    assert questions == [question]
     assert service.calls == []
     assert events[-1]['status'] == 'awaiting_answers'
+
+
+def test_build_uses_inferred_defaults_and_executes_without_questions(service):
+    model = FakeModel([
+        [tool('read_project', {}, 'read')],
+        [assessment(operations=('add_component',))],
+        [tool('add_component', {'type': 'wokwi-led'}, 'add')],
+        [AIMessageChunk(content='I selected the existing Uno and placed the LED.')],
+    ])
+    events = collect(model, project_id='current', history=[HumanMessage(content='Build a blinking LED circuit')])
+    assert events[-1]['status'] == 'success'
+    assert not any(event['type'] == 'questions' for event in events)
+    assert [call[1] for call in service.calls] == ['read_project', 'add_component', 'read_project', 'validate_circuit']
+    assert service.components == [{'id': '0', 'type': 'led'}]
+    assert model.tool_sets[0] == set(agent._ASSESSMENT_TOOLS) | {'ask_project_questions'}
+    contexts = [message.content for message in model.histories[0] if message.type == 'system']
+    assert any('agent-selected defaults' in context and '"board": "arduino-uno"' in context for context in contexts)
 
 
 def test_dynamic_board_only_question_is_valid_and_reordered(service):
@@ -654,6 +671,7 @@ def test_dynamic_board_only_question_is_valid_and_reordered(service):
     assert next(event['questions'] for event in events if event['type'] == 'questions') == [board_question]
     assert events[-1]['status'] == 'awaiting_answers'
     questions = questionnaire()
+    questions['questions'] = questions['questions'][:2]
     questions['questions'].append(board_question)
     model = FakeModel([[tool('ask_project_questions', questions)]])
     events = collect(model, project_id='current', history=[HumanMessage(content='Build this circuit')])
@@ -662,12 +680,13 @@ def test_dynamic_board_only_question_is_valid_and_reordered(service):
 
 def test_existing_project_omits_board_question(service):
     questions = questionnaire()
+    questions['questions'] = questions['questions'][:2]
     questions['questions'].insert(0, agent._board_question(''))
     model = FakeModel([[tool('ask_project_questions', questions)]])
     events = collect(model, project_id='current', history=[HumanMessage(content='Build an LED circuit')])
     assert all(question['id'] != 'board' for event in events if event['type'] == 'questions'
                for question in event['questions'])
-    assert 'already uses board arduino-uno' in str(model.histories[0])
+    assert 'existing project board is arduino-uno' in str(model.histories[0])
     assert service.calls == []
 
 

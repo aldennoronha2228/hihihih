@@ -1,0 +1,303 @@
+{
+  "id": "robot-car-obstacle-avoider",
+  "title": "Obstacle-avoiding 2WD robot car",
+  "description": "A differential-drive robot car reference based on the supplied image: front HC-SR04 sensing, two independently driven rear wheels, and a rear ball caster. The editable WireUp project contains the supported controller, sensor, motor-driver IC, and battery cells. Motors and chassis remain explicit external mechanical integration points.",
+  "category": "Robotics",
+  "difficulty": "Intermediate",
+  "boardType": "arduino-uno",
+  "components": [
+    {
+      "id": "sonar-front",
+      "type": "hc-sr04",
+      "x": 620,
+      "y": 80,
+      "rotation": 0,
+      "properties": {
+        "distance": 40
+      }
+    },
+    {
+      "id": "motor-driver",
+      "type": "motor-driver-l293d",
+      "x": 460,
+      "y": 220,
+      "rotation": 0,
+      "properties": {}
+    },
+    {
+      "id": "cell-1",
+      "type": "battery-aa",
+      "x": 760,
+      "y": 300,
+      "rotation": 0,
+      "properties": {}
+    },
+    {
+      "id": "cell-2",
+      "type": "battery-aa",
+      "x": 900,
+      "y": 300,
+      "rotation": 0,
+      "properties": {}
+    },
+    {
+      "id": "cell-3",
+      "type": "battery-aa",
+      "x": 760,
+      "y": 430,
+      "rotation": 0,
+      "properties": {}
+    },
+    {
+      "id": "cell-4",
+      "type": "battery-aa",
+      "x": 900,
+      "y": 430,
+      "rotation": 0,
+      "properties": {}
+    }
+  ],
+  "wires": [
+    {
+      "id": "sonar-trig",
+      "start": {
+        "componentId": "board",
+        "pinName": "2"
+      },
+      "end": {
+        "componentId": "sonar-front",
+        "pinName": "TRIG"
+      },
+      "color": "#f97316"
+    },
+    {
+      "id": "sonar-echo",
+      "start": {
+        "componentId": "board",
+        "pinName": "3"
+      },
+      "end": {
+        "componentId": "sonar-front",
+        "pinName": "ECHO"
+      },
+      "color": "#3b82f6"
+    },
+    {
+      "id": "sonar-vcc",
+      "start": {
+        "componentId": "board",
+        "pinName": "5V"
+      },
+      "end": {
+        "componentId": "sonar-front",
+        "pinName": "VCC"
+      },
+      "color": "#ef4444"
+    },
+    {
+      "id": "sonar-ground",
+      "start": {
+        "componentId": "board",
+        "pinName": "GND.1"
+      },
+      "end": {
+        "componentId": "sonar-front",
+        "pinName": "GND"
+      },
+      "color": "#111827"
+    },
+    {
+      "id": "driver-enable-left",
+      "start": {
+        "componentId": "board",
+        "pinName": "5"
+      },
+      "end": {
+        "componentId": "motor-driver",
+        "pinName": "EN1"
+      },
+      "color": "#a855f7"
+    },
+    {
+      "id": "driver-left-in1",
+      "start": {
+        "componentId": "board",
+        "pinName": "7"
+      },
+      "end": {
+        "componentId": "motor-driver",
+        "pinName": "IN1"
+      },
+      "color": "#f97316"
+    },
+    {
+      "id": "driver-left-in2",
+      "start": {
+        "componentId": "board",
+        "pinName": "8"
+      },
+      "end": {
+        "componentId": "motor-driver",
+        "pinName": "IN2"
+      },
+      "color": "#eab308"
+    },
+    {
+      "id": "driver-enable-right",
+      "start": {
+        "componentId": "board",
+        "pinName": "6"
+      },
+      "end": {
+        "componentId": "motor-driver",
+        "pinName": "EN2"
+      },
+      "color": "#a855f7"
+    },
+    {
+      "id": "driver-right-in1",
+      "start": {
+        "componentId": "board",
+        "pinName": "9"
+      },
+      "end": {
+        "componentId": "motor-driver",
+        "pinName": "IN3"
+      },
+      "color": "#22c55e"
+    },
+    {
+      "id": "driver-right-in2",
+      "start": {
+        "componentId": "board",
+        "pinName": "10"
+      },
+      "end": {
+        "componentId": "motor-driver",
+        "pinName": "IN4"
+      },
+      "color": "#06b6d4"
+    },
+    {
+      "id": "driver-logic",
+      "start": {
+        "componentId": "board",
+        "pinName": "5V"
+      },
+      "end": {
+        "componentId": "motor-driver",
+        "pinName": "VCC1"
+      },
+      "color": "#ef4444"
+    },
+    {
+      "id": "driver-ground-1",
+      "start": {
+        "componentId": "board",
+        "pinName": "GND.1"
+      },
+      "end": {
+        "componentId": "motor-driver",
+        "pinName": "GND.1"
+      },
+      "color": "#111827"
+    },
+    {
+      "id": "driver-ground-2",
+      "start": {
+        "componentId": "board",
+        "pinName": "GND.1"
+      },
+      "end": {
+        "componentId": "motor-driver",
+        "pinName": "GND.2"
+      },
+      "color": "#111827"
+    },
+    {
+      "id": "driver-ground-3",
+      "start": {
+        "componentId": "board",
+        "pinName": "GND.1"
+      },
+      "end": {
+        "componentId": "motor-driver",
+        "pinName": "GND.3"
+      },
+      "color": "#111827"
+    },
+    {
+      "id": "driver-ground-4",
+      "start": {
+        "componentId": "board",
+        "pinName": "GND.1"
+      },
+      "end": {
+        "componentId": "motor-driver",
+        "pinName": "GND.4"
+      },
+      "color": "#111827"
+    },
+    {
+      "id": "motor-supply-positive",
+      "start": {
+        "componentId": "cell-4",
+        "pinName": "+"
+      },
+      "end": {
+        "componentId": "motor-driver",
+        "pinName": "VCC2"
+      },
+      "color": "#ef4444"
+    },
+    {
+      "id": "pack-series-1",
+      "start": {
+        "componentId": "cell-1",
+        "pinName": "+"
+      },
+      "end": {
+        "componentId": "cell-2",
+        "pinName": "−"
+      },
+      "color": "#f97316"
+    },
+    {
+      "id": "pack-series-2",
+      "start": {
+        "componentId": "cell-2",
+        "pinName": "+"
+      },
+      "end": {
+        "componentId": "cell-3",
+        "pinName": "−"
+      },
+      "color": "#f97316"
+    },
+    {
+      "id": "pack-series-3",
+      "start": {
+        "componentId": "cell-3",
+        "pinName": "+"
+      },
+      "end": {
+        "componentId": "cell-4",
+        "pinName": "−"
+      },
+      "color": "#f97316"
+    },
+    {
+      "id": "pack-ground",
+      "start": {
+        "componentId": "cell-1",
+        "pinName": "−"
+      },
+      "end": {
+        "componentId": "board",
+        "pinName": "GND.1"
+      },
+      "color": "#111827"
+    }
+  ],
+  "code": "const uint8_t TRIG_PIN = 2;\nconst uint8_t ECHO_PIN = 3;\nconst uint8_t LEFT_ENABLE = 5;\nconst uint8_t RIGHT_ENABLE = 6;\nconst uint8_t LEFT_IN1 = 7;\nconst uint8_t LEFT_IN2 = 8;\nconst uint8_t RIGHT_IN1 = 9;\nconst uint8_t RIGHT_IN2 = 10;\nconst uint8_t DRIVE_PWM = 120;\nconst unsigned long ECHO_TIMEOUT_US = 30000UL;\nconst long STOP_DISTANCE_CM = 25;\n\nvoid setDrive(int left, int right) {\n  digitalWrite(LEFT_IN1, left >= 0 ? HIGH : LOW);\n  digitalWrite(LEFT_IN2, left >= 0 ? LOW : HIGH);\n  digitalWrite(RIGHT_IN1, right >= 0 ? HIGH : LOW);\n  digitalWrite(RIGHT_IN2, right >= 0 ? LOW : HIGH);\n  analogWrite(LEFT_ENABLE, abs(left));\n  analogWrite(RIGHT_ENABLE, abs(right));\n}\n\nvoid stopDrive() {\n  analogWrite(LEFT_ENABLE, 0);\n  analogWrite(RIGHT_ENABLE, 0);\n}\n\nlong readDistanceCm() {\n  digitalWrite(TRIG_PIN, LOW);\n  delayMicroseconds(2);\n  digitalWrite(TRIG_PIN, HIGH);\n  delayMicroseconds(10);\n  digitalWrite(TRIG_PIN, LOW);\n  const unsigned long echoUs = pulseIn(ECHO_PIN, HIGH, ECHO_TIMEOUT_US);\n  if (echoUs == 0) return -1;\n  return static_cast<long>(echoUs / 58UL);\n}\n\nvoid setup() {\n  pinMode(TRIG_PIN, OUTPUT);\n  pinMode(ECHO_PIN, INPUT);\n  pinMode(LEFT_ENABLE, OUTPUT);\n  pinMode(RIGHT_ENABLE, OUTPUT);\n  pinMode(LEFT_IN1, OUTPUT);\n  pinMode(LEFT_IN2, OUTPUT);\n  pinMode(RIGHT_IN1, OUTPUT);\n  pinMode(RIGHT_IN2, OUTPUT);\n  stopDrive();\n  Serial.begin(9600);\n}\n\nvoid loop() {\n  const long distanceCm = readDistanceCm();\n  if (distanceCm < 0) {\n    stopDrive();\n    Serial.println(\"ultrasonic_timeout; drive stopped\");\n    delay(60);\n    return;\n  }\n\n  Serial.print(\"distance_cm=\");\n  Serial.println(distanceCm);\n  if (distanceCm <= STOP_DISTANCE_CM) {\n    stopDrive();\n    delay(100);\n    setDrive(-DRIVE_PWM, -DRIVE_PWM);\n    delay(250);\n    setDrive(-DRIVE_PWM, DRIVE_PWM);\n    delay(350);\n    stopDrive();\n  } else {\n    setDrive(DRIVE_PWM, DRIVE_PWM);\n    delay(60);\n  }\n}"
+}

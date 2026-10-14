@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { openSample } from '@/lib/open-sample'
 
-type Example = { id: string; title: string; category: string; boards: string[]; language: string; available: boolean; starter?: boolean; simulation_scope: 'ready' | 'partial' | 'blocked'; thumbnail?: string; blockers: unknown[]; dependencies?: unknown; part_scopes?: unknown[] }
+type Example = { id: string; title: string; category: string; boards: string[]; language: string; available: boolean; starter?: boolean; simulation_scope: 'ready' | 'partial' | 'blocked'; thumbnail?: string; thumbnail_label?: string; blockers: unknown[]; dependencies?: unknown; part_scopes?: unknown[] }
 export function ExamplesGallery() {
   const [examples, setExamples] = useState<Example[]>([])
   const [query, setQuery] = useState('')
@@ -23,7 +23,7 @@ export function ExamplesGallery() {
   const open = async (id: string) => {
     if (opening) return
     setOpening(id); setError('')
-    try { const project = await openSample(id); navigate(`/project/${project.id}`, { state: { setupGuidance: project.setup_guidance } }) }
+    try { const project = await openSample(id); navigate(`/project/${project.id}?sample=${encodeURIComponent(id)}`, { state: { setupGuidance: project.setup_guidance, sampleId: id } }) }
     catch (error) { setError(error instanceof Error ? error.message : 'Could not open example.'); setOpening('') }
   }
   const selectClass = 'max-w-full rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm'
@@ -42,7 +42,7 @@ export function ExamplesGallery() {
       {loading ? <p role="status">Loading examples…</p> : <>
         <p className="mb-4 text-xs text-neutral-500">{visible.length} examples</p>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{visible.map(example => <article key={example.id} className="overflow-hidden rounded-xl border border-neutral-800 bg-neutral-900">
-          <img src={example.thumbnail || '/wireup-logo.png'} alt="" loading="lazy" className="h-36 w-full bg-neutral-950 object-contain" />
+          <div className="relative bg-neutral-950"><img src={example.thumbnail || '/wireup-logo.png'} alt="" loading="lazy" className="h-36 w-full object-contain" />{example.thumbnail_label && <span className="absolute bottom-2 left-2 rounded-md border border-neutral-600 bg-neutral-950/90 px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-neutral-300">{example.thumbnail_label}</span>}</div>
           <div className="p-4">
             <h2 className="text-sm font-medium">{example.title}</h2>
             <p className="mt-2 break-words text-xs text-neutral-500">{example.boards.join(', ')} · {example.language} · {example.category}</p>

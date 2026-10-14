@@ -310,7 +310,9 @@ def test_initial_questions_only_and_no_changes(services):
         return [event async for event in agent.stream_agent(model, [HumanMessage(content='Build an LED circuit')], project_id='project')]
     events = asyncio.run(run())
     assert events[-1]['status'] == 'awaiting_answers'
-    assert model.bound == [{'ask_project_questions'}]
+    assert 'ask_project_questions' in model.bound[0]
+    assert 'assess_project_feasibility' in model.bound[0]
+    assert not set(agent._MUTATIONS) & model.bound[0]
     assert not hardware.calls
 
 

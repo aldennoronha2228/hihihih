@@ -44,22 +44,34 @@ Tool errors are feedback: correct arguments or explain the error, do not blindly
 repeat mutations. No shell execution is available. Give a concise final answer only
 when tools are finished; do not include tool-selection prose in that answer.
 For explicit project build/create/wire/compile requests, DO THE WORK with tools,
-not a tutorial, code block, proposed diagram, or advice-only answer. First ask
-exactly 10 project-specific multiple-choice requirements questions using ask_project_questions
-unless this request includes confirmed requirements. Questions must resolve actual
-uncertainty about requested behavior, components, timing, or runtime, respect the
-existing selected board, and avoid asking things the user already specified.
-For new projects, choose Arduino Uno/Nano/Mega or an existing ESP32 target only. Prefer ESP32-C3/S3 when simulation is requested; classic DevKit V1/C V4 need their unavailable native runtime. Keep all catalog components available for building, but disclose their board-specific simulation limitations.
+not a tutorial, code block, proposed diagram, or advice-only answer. Treat the
+request as authorization for ordinary reversible changes to this current project.
+Infer the design from the user's words and any supplied images; do not ask the
+user to restate what is visible. Read the current project, search the real catalog,
+and choose conservative, compatible defaults. State assumptions in the final
+answer. Ask only when a missing choice blocks a safe build or would materially
+change the product; when needed, ask at most three focused questions and continue
+after the answers. Never ask a fixed questionnaire or ask about details already
+given. If the user says to proceed without prompts, do so unless an essential
+safety or compatibility fact is missing.
+For new projects, choose from the actual supported board catalog based on the
+requested peripherals and verified runtime. Prefer a board that can execute the
+requested firmware and peripherals when simulation matters. Respect a board
+already selected in the project; ask before replacing it if the request explicitly
+requires a different board. Keep all catalog components available for building,
+but disclose their board-specific simulation limitations.
 Unavailable simulation is informational, not a reason to refuse circuit/source generation.
 Say simulation is currently unavailable and omit runtime tools for those boards.
 For Raspberry Pi Linux write an appropriate Python application and setup instructions,
 not Arduino C++; do not claim compilation or simulation when unavailable.
-On a board-unselected project, the first question must have id board, with canonical
-catalog board IDs as option IDs and none for an analog circuit without a board.
-Other questions are optional; ask only unresolved decisions, with three concrete options followed by a fourth option with id ai_choose and label Let AI choose.
-Never add or replace a board unless the confirmed board answer authorizes it.
-Once confirmed, use only read_project, search_components, search_example_requirements
-and assess_project_feasibility until the actual plan is approved. Assess the full plan:
+On a board-unselected project, choose a board from the canonical catalog using the
+requested peripherals and runtime support. Ask about the board only when no safe
+default can be inferred or a requested board conflicts with the project. If you do
+ask, board option IDs must be canonical catalog IDs; use none for an analog circuit.
+Offer concrete supported options and ai_choose / Let AI choose. Do not replace an
+existing board without an explicit user choice. Before any mutation, use only
+read_project, search_components, search_example_requirements, get_example_reference,
+ask_project_questions when essential, and assess_project_feasibility. Assess the full plan:
 board, behavior, every part's type/quantity/purpose, libraries and requested operations
 using exact executable tool names such as wire_circuit and compile_firmware.
 The server resolves documented limitations automatically; explain them without asking
@@ -69,8 +81,11 @@ After approval, add only approved parts and perform only approved operations.
 Use wire_circuit for validated atomic batches of exact
 connections, then validate_circuit and fix proven errors before writing firmware.
 Explain validation warnings and its limited scope; do not claim broad electrical
-certification. Write working firmware, and compile if requested
-or needed for the build. Use IDs from successful tool results, not imagined IDs.
+certification. Write working firmware. For an Arduino build on a board with
+compile support, include compile_firmware in the reviewed operations and compile
+the final source after circuit validation, even when the user did not say "compile".
+Compilation is a source check, not a simulation. Use IDs from successful tool
+results, not imagined IDs.
 Perform revision-changing operations sequentially. Every successful mutation
 returns the next revision; use it for the next operation. On stale revision read
 again and reconcile, never blindly replay. If the requested circuit needs a
@@ -111,7 +126,7 @@ class _Question(_Args):
 
 
 class _Questions(_Args):
-    questions: list[_Question] = Field(min_length=1, max_length=10)
+    questions: list[_Question] = Field(min_length=1, max_length=3)
     summary: str = Field(min_length=1, max_length=1000)
 
 
@@ -204,7 +219,7 @@ _DESCRIPTIONS = {
     'assess_project_feasibility': 'Assess the complete intended board, behavior, parts with quantities and purposes, libraries and exact executable tool names before ANY placement or mutation. The server resolves documented limitations automatically; incompatible plans authorize no changes.',
     'get_example_reference': 'Read an actual Velxio example circuit, exact parts and connections, firmware source, dependencies and canonical adaptations. Use it as a reference, then build through existing project tools; never claim this reference ran here.',
     'search_example_requirements': 'Search analyzed Velxio prototypes for board, component, library, language, wiring and runtime requirements. Results include unsupported capability gaps; never assume an upstream example runs here.',
-    'ask_project_questions': 'Ask exactly 10 project-specific multiple-choice requirements questions, board first when unselected; three concrete options plus fourth option ai_choose / Let AI choose. Pause for user selections without mutations.',
+    'ask_project_questions': 'Ask up to three focused multiple-choice questions only for unresolved choices that block a safe or materially correct build. Include ai_choose / Let AI choose. Pause before mutations.',
     'read_project': 'Read the current project, components, wires, firmware, and revision. Required before mutations.',
     'search_components': 'Search the component catalog for exact types and supported pins.',
     'add_component': 'Add a catalog component to the current project.',
@@ -487,7 +502,8 @@ async def stream_agent(model, history, project_id=None, runtime_token=None, requ
             for question in args['questions']:
                 if len({option['id'] for option in question['options']}) != len(question['options']):
                     raise ValueError('Option IDs must be unique within a question.')
-            if confirmed:
+            autonomous_planning = bool(requirements and requirements.get('build_mode') == 'infer_defaults' and not approval_id)
+            if confirmed and not autonomous_planning:
                 raise ValueError('Requirements are already confirmed. Execute the requested build with hardware tools.')
             questions = args['questions']
             if project_id:
@@ -495,11 +511,12 @@ async def stream_agent(model, history, project_id=None, runtime_token=None, requ
                 board_unselected = selected_board in (None, 'unselected', 'none')
             if project_id and board_unselected:
                 board_questions = [question for question in questions if question['id'] == 'board']
-                board_question = board_questions[0] if board_questions else _board_question(user_text)
-                if any(option['id'] not in _board_catalog() and option['id'] not in ('none', 'ai_choose')
-                       for option in board_question['options']):
-                    raise ValueError('Board option IDs must be canonical catalog board keys or none.')
-                questions = [board_question, *[question for question in questions if question['id'] != 'board'][:9]]
+                if board_questions:
+                    board_question = board_questions[0]
+                    if any(option['id'] not in _board_catalog() and option['id'] not in ('none', 'ai_choose')
+                           for option in board_question['options']):
+                        raise ValueError('Board option IDs must be canonical catalog board keys or none.')
+                    questions = [board_question, *[question for question in questions if question['id'] != 'board'][:2]]
             elif project_id:
                 questions = [question for question in questions if question['id'] != 'board']
                 if not questions:
@@ -534,7 +551,7 @@ async def stream_agent(model, history, project_id=None, runtime_token=None, requ
             raise ValueError('Call read_project successfully before mutating or compiling the current project.')
         if name in _CONFIRM_FIRST and not confirmed:
             raise ValueError('User-confirmed requirements are required before project mutations, compilation, or simulation start. Call ask_project_questions and wait for answers.')
-        if confirmed and project_id and not approval_id and name not in _ASSESSMENT_TOOLS and name != 'stop_simulation':
+        if confirmed and project_id and not approval_id and name not in _ASSESSMENT_TOOLS and name not in ('ask_project_questions', 'stop_simulation'):
             raise ValueError('Assess the complete project plan and obtain approval before any placement, mutation, compilation, or runtime operation.')
         if name == 'search_example_requirements':
             from backend.example_requirements import search_example_requirements
@@ -698,7 +715,8 @@ async def stream_agent(model, history, project_id=None, runtime_token=None, requ
         elif needs_questions:
             available = [tool for tool in tools if tool.name == 'ask_project_questions']
         elif confirmed and project_id and not approval_id:
-            available = [tool for tool in tools if tool.name in _ASSESSMENT_TOOLS]
+            planning_tools = _ASSESSMENT_TOOLS | ({'ask_project_questions'} if requirements and requirements.get('build_mode') == 'infer_defaults' else set())
+            available = [tool for tool in tools if tool.name in planning_tools]
             require_tools = True
         if approved_plan and approval_id and not emergency_stop:
             excluded = {'assess_project_feasibility', 'ask_project_questions'}
@@ -762,7 +780,7 @@ async def stream_agent(model, history, project_id=None, runtime_token=None, requ
             if build_requested and not any(successful_tools.get(name) for name in _CONFIRM_FIRST):
                 if attempted_tools and failed_tools:
                     raise _IncompleteBuild('The requested build is blocked by tool errors. No requested project change succeeded; review the tool errors and correct the project or requirements.')
-                raise _IncompleteBuild('The agent returned advice without executing the requested build. No changes were made. Retry with confirmed requirements and an explicit build instruction.')
+                raise _IncompleteBuild('The agent returned advice without executing the requested build. No project changes were made; the build must use the project tools before it can be reported complete.')
             if project_id and approval_id and (build_requested or any(successful_tools.get(name) for name in _CONFIRM_FIRST)):
                 _get_feasibility().validate_approval(_get_service(), project_id, approval_id)
                 for check in ('read_project', 'validate_circuit'):
@@ -900,6 +918,14 @@ async def stream_agent(model, history, project_id=None, runtime_token=None, requ
             r'\s*(?:(?:please|emergency)\s+)?(?:stop|halt)\s+(?:the\s+)?(?:simulation|simulator)(?:\s+(?:now|please))?[.!]?\s*', user_text, re.I
         ))
         build_requested = bool(project_id and not emergency_stop and (_build_intent(user_text) or approval_id or revising))
+        if build_requested and not confirmed and not revising:
+            current = _get_service().get_project(project_id)
+            selected_board = current.get('board')
+            requirements = {
+                'board': selected_board if selected_board not in (None, 'unselected', 'none') else 'ai_choose',
+                'build_mode': 'infer_defaults',
+            }
+            confirmed = True
         compile_requested = bool(build_requested and ('compile_firmware' in approved_plan['operations'] if approved_plan else re.search(r'\bcompile\b', user_text, re.I)))
         needs_questions = build_requested and not confirmed
         tool_limit = _bounded(max_tool_calls, MAX_TOOL_CALLS, 100)
@@ -930,7 +956,15 @@ async def stream_agent(model, history, project_id=None, runtime_token=None, requ
                 + json.dumps([{'id': key, 'label': item['name']} for key, item in _board_catalog().items()])
                 + '. Offer none for an analog circuit. Limit the board choices to six relevant options.'
             ) if board_unselected else 'The project already uses board ' + str(selected_board) + '. Omit the board question.'))
-        if confirmed:
+        if confirmed and requirements and requirements.get('build_mode') == 'infer_defaults':
+            board_context = (
+                f'The existing project board is {selected_board}; keep that board unless the user explicitly selected a different one.'
+                if selected_board not in (None, 'unselected', 'none') else
+                'The project has no board selected; choose the supported board that best matches the requested peripherals and runtime.'
+            )
+            messages.append(SystemMessage(content='The user explicitly requested this build. These are agent-selected defaults, not user-provided constraints: ' + json.dumps(requirements, ensure_ascii=False)
+                                          + '\n' + board_context + '\nChoose compatible parts from the actual catalog. Use conservative assumptions and state them in the final answer. Ask no more than three focused questions only if a missing choice blocks a safe or materially correct build; otherwise assess and build now.'))
+        elif confirmed:
             messages.append(SystemMessage(content='The user confirmed these project requirements: ' + json.dumps(requirements, ensure_ascii=False)
                                           + '\nAn ai_choose answer delegates that decision to you: choose a supported option, explain it, and include it in the assessed plan. Do not repeat that question. Execute the latest requested project operation with tools. Do not ask requirements questions again.'))
         if approved_plan:
@@ -939,8 +973,7 @@ async def stream_agent(model, history, project_id=None, runtime_token=None, requ
         elif confirmed and project_id and not emergency_stop:
             messages.append(SystemMessage(content='Feasibility approval is required. Read the current project and assess the complete actual intended plan before any placement, firmware change, compilation or runtime tool.'))
         if needs_questions:
-            messages.append(SystemMessage(content='This is an initial project build request without confirmed requirements. '
-                                          'Call ask_project_questions with exactly 10 useful MCQs now; non-board questions are optional. No hardware changes may run.'))
+            messages.append(SystemMessage(content='The user chose to revise the design. Ask no more than three focused multiple-choice questions to resolve the reported feasibility blockers. Preserve stated requirements and the selected board; offer supported alternatives and ai_choose. Do not make hardware changes in this clarification turn.'))
         # Disable provider transport retries without mutating a shared parent model.
         if hasattr(model, 'max_retries') and hasattr(model, 'model_copy'):
             updates = {'max_retries': 0}

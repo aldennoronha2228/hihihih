@@ -18,8 +18,11 @@ from backend.hardware import (
 
 ROOT = Path(__file__).resolve().parents[1]
 EXAMPLES_PATH = ROOT / 'backend/templates/velxio-examples.json'
+CUSTOM_STARTER_PATH = ROOT / 'backend/templates/robot-car-obstacle-avoider.json'
+CUSTOM_STARTER_RECORD_PATH = ROOT / 'backend/templates/robot-car-obstacle-avoider-record.json'
 STARTER_IDS = ('serial-hello', 'button-led', 'nano-button-led', 'mega-blink',
                'pico-blink', 'pico-button-led')
+CUSTOM_STARTER_IDS = ('robot-car-obstacle-avoider',)
 UPSTREAM_PATH = 'vendor/velxio/frontend/src/data/examples.ts'
 
 
@@ -227,6 +230,20 @@ class SampleCatalog:
         if len(by_id) != len(examples):
             raise ValueError('Duplicate upstream example identifiers.')
         self.templates = {key: normalize_template(by_id[key], hardware_service.catalog) for key in STARTER_IDS}
+        custom = json.loads(CUSTOM_STARTER_PATH.read_text(encoding='utf-8'))
+        self.custom_templates = {custom['id']: normalize_template(custom, hardware_service.catalog)}
+        self.custom_records = {custom['id']: json.loads(CUSTOM_STARTER_RECORD_PATH.read_text(encoding='utf-8'))}
+        self.custom_capabilities = {
+            custom['id']: {
+                'available': True, 'seedable': True, 'canonical_supported': True,
+                'fully_supported': False, 'simulation_ready': False,
+                'simulation_scope': 'partial',
+                'blockers': [
+                    {'category': 'component_runtime_unavailable', 'detail': 'motor-driver-l293d on arduino-uno'},
+                    {'category': 'external_mechanical_integration', 'detail': 'Drive motors, wheels, caster, battery holder, and custom chassis are not represented as simulated WireUp components.'},
+                ],
+            }
+        }
         self.examples = examples
         self.capabilities = {key: example_capabilities(example, hardware_service.catalog)
                              for key, example in by_id.items()}
@@ -241,21 +258,13 @@ class SampleCatalog:
             # Disposable projects exercise canonical persistence and command validation without publishing copies.
             with tempfile.TemporaryDirectory(prefix='wireup-samples-') as directory:
                 validator = HardwareService(directory, catalog=self.hardware_service.catalog)
-                for template in self.templates.values():
+                for template in (*self.templates.values(), *self.custom_templates.values()):
                     project = await create_copy(validator, template)
                     validator.delete_project(project['id'])
-                for example_id, capabilities in self.capabilities.items():
-                    if example_id in self.templates or not capabilities['available']:
-                        continue
-                    try:
-                        project = await create_copy(validator, capabilities['normalized_template'])
-                        validator.delete_project(project['id'])
-                    except (ValueError, KeyError, TypeError, HTTPException) as exc:
-                        detail = str(exc.detail) if isinstance(exc, HTTPException) else str(exc)
-                        capabilities.update(available=False, seedable=False, canonical_supported=False,
-                                            fully_supported=False, simulation_ready=False,
-                                            simulation_scope='blocked', normalized_template=None)
-                        capabilities['blockers'].append({'category': 'canonical_validation_gap', 'detail': detail})
+            # The remaining 300+ gallery examples are normalized and pin-checked
+            # eagerly, then persisted only when a user opens one. Creating a
+            # disposable project for every entry here made API startup block on
+            # hundreds of unnecessary writes.
             self.validated = True
 
     def summaries(self):
@@ -283,7 +292,7 @@ class SampleCatalog:
                 'verification': 'canonical_service_validated',
                 'verification_status': {'canonical_validation': 'passed', 'real_compile': 'not_verified',
                                         'browser_run': 'not_verified', 'simulation_verified': False},
-                'available': True, 'compile_supported': board['compile'],
+                'available': True, 'compile_supported': board['compile'], 'simulation_ready': True,
                 'simulation': board['simulation'], 'runtime': board['runtime'],
                 'requirements': {
                     'parts': [{'id': 'board', 'type': template['board']}, *copy.deepcopy(template['parts'])],
@@ -296,6 +305,46 @@ class SampleCatalog:
                                'export_sha256': self.source_hash, 'example_id': template['id'],
                                'preview': thumb, 'source_modified': False,
                                'adaptations': copy.deepcopy(template['adaptations'])}})
+        for sample_id, template in self.custom_templates.items():
+            record = self.custom_records[sample_id]
+            board = BOARD_CONFIG[template['board']]
+            source_hash = hashlib.sha256(template['source'].encode()).hexdigest()
+            compile_evidence = record.get('compile_evidence', {})
+            compile_verified = compile_evidence.get('source_sha256') == source_hash
+            pins = sorted({endpoint['pin'] for wire in template['wires']
+                           for endpoint in (wire['from'], wire['to']) if endpoint['component'] == 'board'})
+            instructions = [
+                'Open the project and compile the current Arduino sketch. The Uno and HC-SR04 timing path are supported; the L293D and wheel motion are not simulated.',
+                'Mount two Pololu 100:1 LP 6V gearmotors with their 3 mm D-shafts on the rear axle and fit the 70x8 mm wheels.',
+                'Mount the 3/8 inch ball caster at the opposite end so the chassis rests on three support points.',
+                'Mount the HC-SR04 facing forward. Fit the Uno, L293D, and a four-cell AA holder to the custom 160x100x3 mm concept plate; verify hole positions before cutting.',
+                'Connect each left/right motor across one L293D output pair. If mirrored mounting makes one wheel run backward, swap that motor pair\'s leads. Use the battery pack only on VCC2; Uno 5V powers VCC1 and the sensor. Join battery negative, Uno GND, and all driver GND pins.',
+                'The motor item #992 has 0.36 A theoretical stall current at 6 V, below the L293D 0.6 A-per-channel rating; do not stall a motor, and check driver temperature and voltage drop on real hardware.',
+                'The sketch starts at PWM 120/255 and stops both motor enables when the echo times out. Tune PWM, the 25 cm threshold, and maneuver timing on a bench with the drive wheels raised.',
+            ]
+            summaries.append({key: template[key] for key in ('id', 'title', 'description', 'category', 'difficulty', 'board')} | {
+                'thumbnail': '/starter-thumbnails/robot-car-obstacle-avoider-reference.png',
+                'thumbnail_label': 'Reference image', 'thumbnail_is_upstream': False,
+                'verification': 'custom_reference_canonical_and_real_compile_verified' if compile_verified else 'custom_reference_canonical_service_validated',
+                'verification_status': {'canonical_validation': 'passed', 'real_compile': 'passed' if compile_verified else 'not_verified',
+                                        'browser_run': 'not_verified', 'simulation_verified': False},
+                'available': True, 'compile_supported': board['compile'],
+                'simulation': board['simulation'], 'runtime': board['runtime'], 'simulation_ready': False,
+                'requirements': {
+                    'parts': [{'id': 'board', 'type': template['board']}, *copy.deepcopy(template['parts'])],
+                    'external_parts': copy.deepcopy(record['physical_parts']),
+                    'wiring': copy.deepcopy(template['wires']), 'pins': pins,
+                    'firmware': {'filename': 'sketch.ino', 'language': 'arduino', 'fqbn': board['fqbn'],
+                                 'libraries': [], 'source_sha256': source_hash},
+                    'libraries': [], 'instructions': instructions,
+                    'verification': ('Canonical service validation and Arduino Uno compilation passed for this exact source.' if compile_verified else 'Canonical service validation passed; real compilation is not verified for this exact source.') + ' Browser behavior, physical assembly, and vehicle dynamics are not verified.'},
+                'provenance': {'source': 'Hand-authored RC-car reference built from the current WireUp catalog and published manufacturer data.',
+                               'export': 'backend/templates/robot-car-obstacle-avoider.json',
+                               'source_modified': True, 'physical_parts': copy.deepcopy(record['physical_parts']),
+                               'defaults': copy.deepcopy(record['defaults']),
+                               'firmware_defaults': copy.deepcopy(record['firmware_defaults']),
+                               **({'compile_evidence': copy.deepcopy(compile_evidence)} if compile_verified else {}),
+                               'unresolved': copy.deepcopy(record['unresolved'])}})
         return summaries
 
 
@@ -336,8 +385,8 @@ def create_router(hwservice=None, examples_path=EXAMPLES_PATH):
     @api.post('/{sample_id}/open')
     async def open_sample(sample_id: str):
         await catalog.validate()
-        template = catalog.templates.get(sample_id)
-        capabilities = catalog.capabilities.get(sample_id)
+        template = catalog.templates.get(sample_id) or catalog.custom_templates.get(sample_id)
+        capabilities = catalog.capabilities.get(sample_id) or catalog.custom_capabilities.get(sample_id)
         if capabilities is None:
             raise HTTPException(404, 'Unknown example project.')
         if template is None:
@@ -345,10 +394,24 @@ def create_router(hwservice=None, examples_path=EXAMPLES_PATH):
         if template is None:
             raise HTTPException(409, {'message': 'This example cannot be mapped safely to a canonical project.',
                                       'blockers': capabilities['blockers']})
-        project = await create_copy(hwservice, template)
-        guidance = setup_guidance(template)
+        try:
+            project = await create_copy(hwservice, template)
+        except (ValueError, KeyError, TypeError, HTTPException) as exc:
+            detail = str(exc.detail) if isinstance(exc, HTTPException) else str(exc)
+            raise HTTPException(409, {'message': 'This example could not be copied safely into the current project service.',
+                                      'detail': detail}) from exc
+        if sample_id in catalog.custom_records:
+            guidance = setup_guidance(template) + '\n\n### Physical integration points\n' + '\n'.join(
+                f'- {part["quantity"]} × **{part["name"]}** ({part.get("manufacturer", "")}, item {part.get("part_number") or "custom"}): {part.get("catalog_status", "")}' + (f'. Source: {part["source_url"]}' if part.get('source_url') else '')
+                for part in catalog.custom_records[sample_id]['physical_parts']) + '\n\n' + '\n'.join(
+                f'- **Unresolved:** {item}' for item in catalog.custom_records[sample_id]['unresolved'])
+        else:
+            guidance = setup_guidance(template)
         if template.get('libraries'):
             guidance += '\n\n**Required libraries:** ' + ', '.join(template['libraries']) + '. Install these before compiling the unchanged source; dependencies are not automatically installed or verified.'
+        if sample_id in catalog.custom_records:
+            firmware_defaults = catalog.custom_records[sample_id]['firmware_defaults']
+            guidance += '\n\n**Firmware defaults:** ' + json.dumps(firmware_defaults, ensure_ascii=False)
         guidance += '\n\n**Simulation scope:** ' + ('All listed parts have models for the selected board; compile and run the actual firmware to verify behavior.' if capabilities['simulation_ready'] else 'Partial support only; opening this source does not make unsupported behavior simulatable. ' + json.dumps(capabilities['blockers']))
         return {**project, 'setup_guidance': guidance}
 

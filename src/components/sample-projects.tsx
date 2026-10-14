@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { openSample } from '@/lib/open-sample'
 import { ArrowUpRight, LoaderCircle } from 'lucide-react'
 
-type Sample = { id: string; title: string; description: string; board: string; thumbnail?: string; verification?: string; requirements?: unknown }
+type Sample = { id: string; title: string; description: string; board: string; thumbnail?: string; thumbnail_label?: string; verification?: string; simulation_ready?: boolean; compile_supported?: boolean; requirements?: unknown }
 export function SampleProjects() {
   const [samples, setSamples] = useState<Sample[]>([])
   const [loading, setLoading] = useState(true)
@@ -25,7 +25,7 @@ export function SampleProjects() {
     setOpening(id); setError('')
     try {
       const result = await openSample(id)
-      navigate(`/project/${result.id}`, { state: { setupGuidance: result.setup_guidance } })
+      navigate(`/project/${result.id}?sample=${encodeURIComponent(id)}`, { state: { setupGuidance: result.setup_guidance, sampleId: id } })
     } catch (error) { setError(error instanceof Error ? error.message : 'Could not open this sample.'); setOpening('') }
   }
   return <section aria-label="Starter projects" className="mt-14">
@@ -33,8 +33,8 @@ export function SampleProjects() {
     {loading && <p role="status" className="text-xs text-neutral-500">Loading starter projects…</p>}
     {error && <p role="alert" className="mb-4 rounded-lg border border-red-400/20 bg-neutral-900 p-3 text-sm text-red-300">{error}</p>}
     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{samples.map(sample => <button key={sample.id} type="button" disabled={!!opening} onClick={() => void open(sample.id)} aria-label={`Open sample ${sample.title}`} className="group overflow-hidden rounded-xl border border-neutral-800 bg-neutral-900/95 text-left hover:border-neutral-500 disabled:opacity-60">
-      {sample.thumbnail && <img src={sample.thumbnail} alt="" loading="lazy" className="h-36 w-full bg-neutral-950 object-contain" />}
-      <div className="p-4"><div className="flex items-center justify-between gap-2"><h3 className="text-sm font-medium">{sample.title}</h3>{opening === sample.id ? <LoaderCircle size={16} className="shrink-0 animate-spin" /> : <ArrowUpRight size={16} className="shrink-0 text-neutral-500" />}</div><p className="mt-2 text-xs leading-5 text-neutral-400">{sample.description}</p><p className="mt-3 text-[11px] text-neutral-500">{sample.board} · Compile and run locally</p></div>
+      {sample.thumbnail && <div className="relative bg-neutral-950"><img src={sample.thumbnail} alt="" loading="lazy" className="h-40 w-full object-contain" />{sample.thumbnail_label && <span className="absolute bottom-2 left-2 rounded-md border border-neutral-600 bg-neutral-950/90 px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-neutral-300">{sample.thumbnail_label}</span>}</div>}
+      <div className="p-4"><div className="flex items-center justify-between gap-2"><h3 className="text-sm font-medium">{sample.title}</h3>{opening === sample.id ? <LoaderCircle size={16} className="shrink-0 animate-spin" /> : <ArrowUpRight size={16} className="shrink-0 text-neutral-500" />}</div><p className="mt-2 text-xs leading-5 text-neutral-400">{sample.description}</p><p className="mt-3 text-[11px] text-neutral-500">{sample.board} · {sample.simulation_ready ? 'Compile and run in browser' : sample.compile_supported ? 'Compile supported · simulation partial' : 'Physical hardware integration'}</p></div>
     </button>)}</div>
     {!loading && !error && !samples.length && <p className="text-sm text-neutral-500">No compatible starters are available yet.</p>}
   </section>

@@ -3,10 +3,11 @@ import { ComponentRegistry } from '../../vendor/velxio/frontend/src/services/Com
 import { readPinInfo } from '../../vendor/velxio/frontend/src/utils/readPinInfo'
 import '../../vendor/velxio/frontend/src/elements-register'
 import type { HardwareComponent, HardwarePin } from '../lib/hardware'
+import type { ComponentSize } from '../lib/hardware-layout'
 import type { HardwareRuntime } from './runtime'
 
 export function HardwarePart({ part, runtime, pinsChanged }: {
-  part: HardwareComponent; runtime: HardwareRuntime | null; pinsChanged: (id: string, pins: HardwarePin[]) => void
+  part: HardwareComponent; runtime: HardwareRuntime | null; pinsChanged: (id: string, pins: HardwarePin[], size?: ComponentSize) => void
 }) {
   const host = useRef<HTMLDivElement>(null)
   const element = useRef<HTMLElement | null>(null)
@@ -26,18 +27,21 @@ export function HardwarePart({ part, runtime, pinsChanged }: {
       const tag = espVariant ? 'velxio-esp32' : part.type === 'pi-pico-w' ? 'velxio-pi-pico-w' : metadata?.tagName
       if (!tag || !customElements.get(tag)) { setUnavailable(true); return }
       setUnavailable(false)
-      current = document.createElement(tag)
-      if (espVariant) current.setAttribute('board-kind', espVariant)
-      element.current = current
-      Object.assign(current, metadata?.defaultValues ?? {}, properties.current)
-      host.current.replaceChildren(current)
-      runtime?.registerElement(part.id, current)
+      const componentElement = document.createElement(tag)
+      current = componentElement
+      if (espVariant) componentElement.setAttribute('board-kind', espVariant)
+      element.current = componentElement
+      Object.assign(componentElement, metadata?.defaultValues ?? {}, properties.current)
+      host.current.replaceChildren(componentElement)
+      runtime?.registerElement(part.id, componentElement)
       const read = () => {
         if (!active) return
-        const info = readPinInfo<HardwarePin>(current)
-        if (info?.length) pinsChanged(part.id, info)
+        const info = readPinInfo<HardwarePin>(componentElement)
+        const width = componentElement.offsetWidth
+        const height = componentElement.offsetHeight
+        if (info?.length || width || height) pinsChanged(part.id, info ?? [], { width, height })
       }
-      current.addEventListener('pininfo-change', read)
+      componentElement.addEventListener('pininfo-change', read)
       timer = setInterval(read, 400)
       read()
     }).catch(() => { if (active) setUnavailable(true) })

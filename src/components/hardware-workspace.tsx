@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactNode } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { Wifi, Copy, RotateCw, Cable, ArrowLeft, Check, ChevronDown, ChevronRight, CircuitBoard, Code2, Cpu, FolderOpen, LoaderCircle, Maximize, Minus, Play, Plus, RefreshCw, Save, Search, Square, Terminal, Trash2, Undo2, Waves, Wrench, X, Zap } from 'lucide-react'
+import { Wifi, Copy, RotateCw, Cable, ArrowLeft, Box, Check, ChevronDown, ChevronRight, CircuitBoard, Code2, Cpu, FolderOpen, LoaderCircle, Maximize, Minus, Play, Plus, RefreshCw, Save, Search, Square, Terminal, Trash2, Undo2, Waves, Wrench, X, Zap } from 'lucide-react'
 import { ComponentRegistry } from '../../vendor/velxio/frontend/src/services/ComponentRegistry'
 import { artifactIsCurrent, catalogPins, catalogType, hardwareApi, HardwareApiError, isHardwareProject } from '../lib/hardware'
 import type { CatalogComponent, CompilerResult, Firmware, HardwareCommand, HardwareComponent, HardwarePin, HardwareProject, WireEndpoint } from '../lib/hardware'
@@ -14,13 +14,19 @@ import { WorkspaceLoading } from './ui/workspace-loading'
 import { BoardFlashDialog } from './ui/board-flash-dialog'
 import { visibleForBuilding } from '../lib/simulation-catalog'
 import { EspNetworkDialog } from './ui/esp-network-dialog'
+import { hardwarePinPosition } from '../lib/hardware-layout'
+import type { ComponentSize } from '../lib/hardware-layout'
 
 type WorkspaceTab = 'circuit' | 'agent' | 'parts'
 type DockTab = 'compiler' | 'serial' | 'results' | 'tools'
-export type HardwareWorkspaceView = 'circuit' | 'schematic'
+export type HardwareWorkspaceView = 'circuit' | 'schematic' | '3d'
+export type HardwareWorkspaceModelViewContext = {
+  project: HardwareProject; pins: Record<string, HardwarePin[]>; partSizes: Record<string, ComponentSize>
+  selected?: string; onSelect: (id: string) => void
+}
 export type HardwareWorkspaceProps = {
   chatSlot?: ReactNode; children?: ReactNode; onProjectChange?: (project: HardwareProject | null) => void
-  schematicSlot?: ReactNode; oscilloscopeSlot?: ReactNode; analysisSlot?: ReactNode
+  schematicSlot?: ReactNode; modelViewSlot?: (context: HardwareWorkspaceModelViewContext) => ReactNode; oscilloscopeSlot?: ReactNode; analysisSlot?: ReactNode
   onRuntimeChange?: (runtime: HardwareRuntime | null) => void
   onResultsChange?: (results: RuntimeResults | null) => void
   view?: HardwareWorkspaceView; onViewChange?: (view: HardwareWorkspaceView) => void
@@ -78,7 +84,7 @@ function CatalogThumbnail({ type, name, thumbnail }: { type: string; name: strin
   return <span className="hw-catalog-art" aria-hidden="true">{!imageFailed ? <img src={preview} alt="" loading="lazy" onError={() => setImageFailed(true)} /> : <span ref={host} className="hw-catalog-element"><Cpu size={22} /></span>}<span className="hw-thumbnail-name">{name}</span></span>
 }
 
-export function HardwareWorkspace({ chatSlot, children, onProjectChange, schematicSlot, oscilloscopeSlot, analysisSlot, onRuntimeChange, onResultsChange, view, onViewChange }: HardwareWorkspaceProps) {
+export function HardwareWorkspace({ chatSlot, children, onProjectChange, schematicSlot, modelViewSlot, oscilloscopeSlot, analysisSlot, onRuntimeChange, onResultsChange, view, onViewChange }: HardwareWorkspaceProps) {
   const { projectId } = useParams<{ projectId: string }>()
   const [loadAttempt, setLoadAttempt] = useState(0)
   const [loadError, setLoadError] = useState('')
@@ -118,6 +124,7 @@ export function HardwareWorkspace({ chatSlot, children, onProjectChange, schemat
   useEffect(() => { onResultsChange?.(results) }, [results, onResultsChange])
   const [compiler, setCompiler] = useState<CompilerResult | null>(null)
   const [pins, setPins] = useState<Record<string, HardwarePin[]>>({})
+  const [partSizes, setPartSizes] = useState<Record<string, ComponentSize>>({})
   const [wireStart, setWireStart] = useState<WireEndpoint | null>(null)
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
@@ -186,7 +193,7 @@ export function HardwareWorkspace({ chatSlot, children, onProjectChange, schemat
     const loadingStarted = performance.now()
     let finishTimer: ReturnType<typeof setTimeout> | undefined
     setLoading(true); setLoadError(''); setError(''); setProject(null); projectRef.current = null
-    setSelected(''); setPins({}); setResults(null); setWireStart(null)
+    setSelected(''); setPins({}); setPartSizes({}); setResults(null); setWireStart(null)
     if (!projectId) {
       setLoadError('No project was selected. Open a prototype from the home page.')
       setLoading(false)
@@ -314,8 +321,9 @@ export function HardwareWorkspace({ chatSlot, children, onProjectChange, schemat
     setPosition({ x: selectedPart.x, y: selectedPart.y, rotation: selectedPart.rotation })
   }, [selectedPart])
 
-  const pinsChanged = useCallback((id: string, info: HardwarePin[]) => {
+  const pinsChanged = useCallback((id: string, info: HardwarePin[], size?: ComponentSize) => {
     setPins(previous => JSON.stringify(previous[id]) === JSON.stringify(info) ? previous : { ...previous, [id]: info })
+    if (size?.width && size.height) setPartSizes(previous => previous[id]?.width === size.width && previous[id]?.height === size.height ? previous : { ...previous, [id]: size })
   }, [])
   const catalogFor = (part: HardwareComponent) => knownCatalog.find(item => catalogType(item) === part.type)
   const displayedPart = (part: HardwareComponent) => dragPreview?.id === part.id ? { ...part, x: dragPreview.x, y: dragPreview.y } : part
@@ -384,16 +392,7 @@ export function HardwareWorkspace({ chatSlot, children, onProjectChange, schemat
     target.addEventListener('lostpointercapture', cancel)
   }
   const endpointOptions = project?.components.flatMap(part => catalogPins(catalogFor(part)).map(pin => ({ value: JSON.stringify({ component: part.id, pin }), label: `${part.id} · ${pin}` }))) ?? []
-  const pinPosition = (endpoint: WireEndpoint) => {
-    const canonical = project?.components.find(part => part.id === endpoint.component)
-    const part = canonical && displayedPart(canonical)
-    const info = pins[endpoint.component] ?? []
-    const aliases = [endpoint.pin, endpoint.pin.replace(/^D(?=\d)/, ''), endpoint.pin === 'GND' ? 'GND.1' : endpoint.pin, endpoint.pin === 'TX' ? '1' : endpoint.pin === 'RX' ? '0' : endpoint.pin]
-    const pin = aliases.map(name => info.find(pin => pin.name === name)).find(Boolean)
-    if (!part || pin?.x === undefined || pin.y === undefined) return null
-    const radians = part.rotation * Math.PI / 180
-    return { x: part.x + pin.x * Math.cos(radians) - pin.y * Math.sin(radians), y: part.y + pin.x * Math.sin(radians) + pin.y * Math.cos(radians) }
-  }
+  const pinPosition = (endpoint: WireEndpoint) => hardwarePinPosition(project, pins, endpoint, dragPreview)
   const revealPin = (endpoint: WireEndpoint) => {
     const point = pinPosition(endpoint)
     const viewport = canvasViewport.current
@@ -460,7 +459,7 @@ export function HardwareWorkspace({ chatSlot, children, onProjectChange, schemat
     {notice && <div role="status" className="hw-notice">{notice}</div>}
     {loading ? <WorkspaceLoading/> : !project ? <section className="flex min-h-0 flex-1 items-center justify-center p-6"><div className="w-full max-w-md rounded-xl border border-neutral-800 bg-neutral-900 p-6"><h1 className="text-lg font-semibold">Unable to open this project</h1><p role="alert" className="mt-3 text-sm leading-6 text-neutral-400">{loadError || 'The project could not be loaded.'}</p><p className="mt-3 text-xs leading-5 text-neutral-500">If the hardware service is unavailable, start the backend and retry. Project creation remains on the WireUp home page.</p><div className="mt-5 flex flex-wrap gap-3">{projectId && <button type="button" onClick={() => setLoadAttempt(value => value + 1)} className="rounded-lg bg-[#4a8fd9] px-4 py-2 text-sm font-medium text-white">Retry loading</button>}<Link to="/" className="rounded-lg border border-neutral-700 px-4 py-2 text-sm">Back to home</Link><Link to="/projects" className="rounded-lg border border-neutral-700 px-4 py-2 text-sm">All projects</Link></div></div></section> : <>
       <nav className="hw-mobile-tabs" aria-label="Workspace panels">{(['circuit', 'parts', 'agent'] as const).map(value => <button key={value} className={tab === value ? 'active' : ''} onClick={() => setTab(value)}>{value === 'circuit' ? 'Canvas' : value === 'parts' ? 'Parts' : 'Agent'}</button>)}</nav>
-      <div className={`hw-workbench${activeView === 'schematic' ? ' is-schematic' : ''}`} style={{ '--hw-sidebar': `${layout.sidebar}px`, '--hw-agent': `${layout.agent}px` } as CSSProperties}>
+      <div className={`hw-workbench${activeView === 'schematic' ? ' is-schematic' : ''}${activeView === '3d' ? ' is-3d' : ''}`} style={{ '--hw-sidebar': `${layout.sidebar}px`, '--hw-agent': `${layout.agent}px` } as CSSProperties}>
         <div className="hw-resizer hw-resizer-col" data-side="left" data-active={resizing === 'sidebar'} role="separator" aria-orientation="vertical" aria-label="Resize components panel" onPointerDown={startResize('sidebar')} />
         <div className="hw-resizer hw-resizer-col" data-side="right" data-active={resizing === 'agent'} role="separator" aria-orientation="vertical" aria-label="Resize agent panel" onPointerDown={startResize('agent')} />
         <aside className="hw-sidebar hw-parts-panel">
@@ -483,7 +482,7 @@ export function HardwareWorkspace({ chatSlot, children, onProjectChange, schemat
         </aside>
         <section className="hw-center">
       <nav className="hw-toolbar" aria-label="Hardware actions">
-        <div className="hw-view-tabs" role="tablist" aria-label="Design view"><button role="tab" aria-selected={activeView === 'circuit'} onClick={() => changeView('circuit')}><CircuitBoard size={15} /> Circuit</button><button role="tab" aria-selected={activeView === 'schematic'} onClick={() => changeView('schematic')}><Zap size={15} /> Schematic</button></div>
+        <div className="hw-view-tabs" role="tablist" aria-label="Design view"><button role="tab" aria-selected={activeView === 'circuit'} onClick={() => changeView('circuit')}><CircuitBoard size={15} /> Circuit</button><button role="tab" aria-selected={activeView === '3d'} onClick={() => changeView('3d')}><Box size={15} /> 3D</button><button role="tab" aria-selected={activeView === 'schematic'} onClick={() => changeView('schematic')}><Zap size={15} /> Schematic</button></div>
         <div className="hw-actions">
           {activeView === 'circuit' && analysisSlot}
           {activeView === 'circuit' && <button className="hw-sketch-button" aria-haspopup="dialog" onClick={() => { setTab('circuit'); setSketchOpen(true) }}><Code2 size={15} /><span>Sketch</span>{dirty && <i className="hw-unsaved" />}</button>}
@@ -498,7 +497,7 @@ export function HardwareWorkspace({ chatSlot, children, onProjectChange, schemat
 
           <div className="hw-design-surface">
           <div className="hw-circuit-panel" hidden={activeView !== 'circuit'}>
-            {!project.components.length && <p className="p-4 text-center text-xs text-neutral-400">Your canvas is empty. Describe your project and answer the questions; the agent will select and place the board after confirmation.</p>}
+            {!project.components.length && <p className="p-4 text-center text-xs text-neutral-400">Your canvas is empty. Describe what you want to build; the agent will inspect the catalog, choose sensible defaults, and ask only when a real design choice is blocked.</p>}
             {unresolvedWires.length > 0 && <p className="hw-notice" role="status">{unresolvedWires.length} connection(s) are saved but their component pin layout is not ready. {unresolvedWires.map(wire => `${wire.from.component}.${wire.from.pin} → ${wire.to.component}.${wire.to.pin}`).join('; ')}</p>}
             <div className="hw-canvas-viewport" ref={canvasViewport} aria-label="Circuit canvas"><div className="hw-canvas" style={{ width: 1000 * zoom, height: 650 * zoom }}><div className="hw-canvas-world" style={{ transform: `scale(${zoom})` }}>
               <svg className="hw-wires" width="1000" height="650" aria-label="Circuit wires">{project.wires.map(wire => { const start = pinPosition(wire.from); const end = pinPosition(wire.to); if (!start || !end) return null; const path = roundedWirePath(start, end); return <g key={wire.id}><path d={path} stroke={wire.color} fill="none" strokeWidth={wireDetails?.id === wire.id ? 5 : 3} pointerEvents="none"/><path className="hw-wire-hit" d={path} stroke="transparent" fill="none" strokeWidth="14" tabIndex={wireInspectDisabled ? -1 : 0} role="button" aria-disabled={wireInspectDisabled || undefined} aria-label={`Inspect wire ${wire.from.component}.${wire.from.pin} to ${wire.to.component}.${wire.to.pin}`} onClick={event => { event.stopPropagation(); if (wireInspectDisabled) return; setWireDetails({id:wire.id,x:(start.x+end.x)/2,y:(start.y+end.y)/2}) }} onKeyDown={event => { if(event.key==='Enter'||event.key===' '){event.preventDefault(); if (wireInspectDisabled) return; setWireDetails({id:wire.id,x:(start.x+end.x)/2,y:(start.y+end.y)/2})} }}/>{wireDetails?.id === wire.id && [wire.from,wire.to].map((endpoint,index) => {const point=index===0?start:end;return <g key={index} pointerEvents="none"><circle cx={point.x} cy={point.y} r="8" fill="#0e1722" stroke="#c0e2ff" strokeWidth="2"/><circle cx={point.x} cy={point.y} r="3" fill={wire.color}/><rect x={point.x+12} y={point.y-20} width={Math.max(90,`${endpoint.component} · ${endpoint.pin}`.length*7)} height="22" rx="5" fill="#1c2d40" stroke="#7899bc"/><text x={point.x+18} y={point.y-5} fill="#e7f3ff" fontSize="11">{endpoint.component} · {endpoint.pin}</text></g>})}</g> })}</svg>
@@ -518,6 +517,7 @@ export function HardwareWorkspace({ chatSlot, children, onProjectChange, schemat
             </div></div></div>
             <div className="hw-canvas-hint">{wireStart ? <><Zap size={12} /> Select a second pin to connect <button onClick={() => setWireStart(null)}>Cancel</button></> : <><Zap size={12} /> Drag component labels to move · Click verified pins to wire</>}<span>Uno · 16 MHz</span></div>
           </div>
+          {activeView === '3d' && <section className="hw-3d-panel" aria-label="3D assembly">{modelViewSlot ? modelViewSlot({ project, pins, partSizes, selected, onSelect: setSelected }) : <div className="hw-schematic-empty"><Box size={30} /><h2>3D assembly</h2><p>No 3D assembly renderer is configured for this project.</p></div>}</section>}
           <section className="hw-schematic-panel" hidden={activeView !== 'schematic'} aria-label="Schematic view">{schematicSlot ?? <div className="hw-schematic-empty"><CircuitBoard size={30} /><h2>Schematic view</h2><p>The schematic renderer is supplied by the host application. Your canonical circuit and connections are unchanged.</p></div>}</section>
           {activeView === 'circuit' && <div className="hw-floating-tools" aria-label="Canvas controls"><button aria-label="Zoom out" onClick={() => setZoom(value => Math.max(.25, value - .1))}><Minus size={15} /></button><button aria-label="Reset zoom" onClick={() => setZoom(1)}>{Math.round(zoom * 100)}%</button><button aria-label="Zoom in" onClick={() => setZoom(value => Math.min(2, value + .1))}><Plus size={15} /></button><i /><button aria-label="Fit circuit" onClick={fitCanvas}><Maximize size={15} /></button><button aria-label="Reset canvas view" onClick={() => { setZoom(1); canvasViewport.current?.scrollTo({ left: 0, top: 0 }) }}><RefreshCw size={15} /></button><span className={results?.running ? 'hw-running' : ''}>{results?.running ? '● Running' : '○ Stopped'}</span></div>}
           </div>

@@ -4,6 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 from langchain_core.messages import AIMessageChunk, HumanMessage, SystemMessage, ToolMessage
 
+from backend import agent
 from backend.app import create_app, safe_error
 
 
@@ -344,7 +345,9 @@ def test_chat_streams_mcqs_and_waits_for_project_answers(tmp_path, monkeypatch):
     })
     streamed = events(response)
     assert response.status_code == 200
-    assert [item.name for item in model.tools] == ['ask_project_questions']
+    assert 'ask_project_questions' in {item.name for item in model.tools}
+    assert 'assess_project_feasibility' in {item.name for item in model.tools}
+    assert not set(agent._MUTATIONS) & {item.name for item in model.tools}
     assert model.tool_choice == 'required'
     narration = [item for item in streamed if item['type'] == 'text' and item['channel'] == 'narration']
     assert narration
