@@ -749,7 +749,15 @@ class RuntimeBridge:
 
 class HardwareService:
     def __init__(self, data_dir=None, compiler=None, runtime=None, catalog=None, native=None):
-        self.data_dir = Path(data_dir) if data_dir else ROOT / 'backend/data/hardware'
+        configured_data_dir = os.getenv('WIREUP_DATA_DIR')
+        if data_dir is not None:
+            self.data_dir = Path(data_dir)
+        elif configured_data_dir:
+            self.data_dir = Path(configured_data_dir)
+        elif os.getenv('VERCEL'):
+            self.data_dir = Path(tempfile.gettempdir()) / 'wireup-hardware'
+        else:
+            self.data_dir = ROOT / 'backend/data/hardware'
         self.compiler = compiler or ArduinoCompiler()
         self.runtime = runtime or RuntimeBridge()
         from backend.native_esp32 import NativeESP32

@@ -18,11 +18,15 @@ Configure these variables in the Vercel backend runtime:
 
 `REMOTE_SIMULATION_URL` is not a Vercel service binding in this topology because service bindings can only target another service in the same Vercel project. Never expose either variable through a `VITE_` variable or send the gateway token to the browser.
 
+## Project storage
+
+On Vercel, the backend writes project files to `/tmp/wireup-hardware` instead of the read-only deployment bundle. Set `WIREUP_DATA_DIR` to override the location on a persistent host. Vercel temporary storage is instance-local and disposable, so projects can disappear or differ between function instances; production hosting requires a durable database or object store.
+
 ## Runtime limitations
 
 The existing backend was designed for a persistent local/container host. A Vercel deployment still needs platform-compatible replacements for these features before they can be considered production-ready:
 
-- project and artifact persistence currently uses local files;
+- durable project and artifact persistence is not yet available on Vercel;
 - browser simulation coordination uses a persistent WebSocket and process-local maps;
 - firmware compilation launches Arduino CLI and requires installed board toolchains;
 - classic ESP32 local simulation uses a Windows QEMU DLL and child process;
