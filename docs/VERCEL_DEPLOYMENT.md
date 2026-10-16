@@ -17,6 +17,10 @@ The browser already uses same-origin `/api/...` HTTP URLs and derives its hardwa
 
 Configure these variables in the Vercel backend runtime:
 
+- `WIREUP_DEPLOYMENT=production`: enables hosted security rules.
+- `WIREUP_ACCESS_TOKEN`: a strong private preview password; keep it server-only.
+- `WIREUP_ALLOWED_ORIGINS`: the exact deployed frontend origin, such as `https://your-preview-domain.vercel.app`; Vercel's `VERCEL_URL`, `VERCEL_BRANCH_URL`, and `VERCEL_PROJECT_PRODUCTION_URL` are accepted automatically.
+- `WIREUP_PUBLIC_HEALTH=true`: keeps the health endpoint available for deployment checks.
 - `REMOTE_SIMULATION_URL`: the external gateway's HTTPS base URL.
 - `REMOTE_SIMULATION_TOKEN`: the same secret of at least 32 printable non-whitespace ASCII characters configured on the gateway.
 
