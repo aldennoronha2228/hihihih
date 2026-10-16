@@ -12,7 +12,7 @@
       "functions": {
         "backend/vercel_app.py": {
           "includeFiles": "{backend/catalog/**,backend/templates/**,vendor/velxio/frontend/public/components-metadata.json}",
-          "excludeFiles": "{node_modules/**,vendor/**,src/**,public/**,scripts/**,tests/**,**/*.spec.ts,**/__pycache__/**,**/*.pyc,backend/tests/**,backend/data/**,backend/builds/**,deployment/**,patches/**,docs/**,.archify/**,.github/**,dist/**,playwright-report/**,test-results/**,audit-artifacts/**,package-lock.json,playwright.config.ts,*.md}"
+          "excludeFiles": "{node_modules/**,vendor/**}"
         }
       }
     }

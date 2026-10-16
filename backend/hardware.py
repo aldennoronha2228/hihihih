@@ -966,14 +966,17 @@ class HardwareService:
                     fail(409, 'Component identifier already exists.')
                 properties = copy.deepcopy(self.catalog.components[kind].get('defaultValues', {}))
                 properties.update(self._properties(kind, args.get('properties', {})))
-                category = self.catalog.components[kind].get('category', 'other')
-                lane = ('input' if kind == 'analog-joystick' or category in ('input', 'sensors', 'analog') else
-                        'output' if category in ('output', 'motors', 'displays') else
-                        'middle')
-                lane_parts = [part for part in project['components'] if part['id'] != 'board' and (
-                    ('input' if part['type'] == 'analog-joystick' or self.catalog.components[part['type']].get('category', 'other') in ('input', 'sensors', 'analog') else
-                     'output' if self.catalog.components[part['type']].get('category', 'other') in ('output', 'motors', 'displays') else
-                     'middle') == lane)]
+                def placement_lane(part_type):
+                    category = self.catalog.components[part_type].get('category', 'other')
+                    if part_type == 'analog-joystick' or category in ('input', 'sensors', 'analog'):
+                        return 'input'
+                    if category in ('output', 'motors', 'displays'):
+                        return 'output'
+                    return 'middle'
+
+                lane = placement_lane(kind)
+                lane_parts = [part for part in project['components']
+                              if part['id'] != 'board' and placement_lane(part['type']) == lane]
                 automatic_x = {'input': 430, 'middle': 710, 'output': 990}[lane] + (len(lane_parts) // 4) * 840
                 automatic_y = 90 + (len(lane_parts) % 4) * 220
                 project['components'].append({'id': component_id, 'type': kind, 'x': numeric(args.get('x', automatic_x)),

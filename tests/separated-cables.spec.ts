@@ -51,6 +51,8 @@ for (const width of [1440, 390]) test(`automatically placed motor connections st
     await command('connect_wire', { from: { component: 'board', pin: 'GND' }, to: { component: id, pin: 'GND' }, color: '#111111' })
     await command('connect_wire', { from: { component: 'board', pin: '5V' }, to: { component: id, pin: 'V+' }, color: '#ff2020' })
   }
+  const checked = await command('check_connections', {})
+  expect(checked.validation.errors).toEqual([])
   await page.setViewportSize({ width, height: 900 })
   await page.goto(`/project/${project.id}`)
   const wires = page.locator('.hw-wire-hit')

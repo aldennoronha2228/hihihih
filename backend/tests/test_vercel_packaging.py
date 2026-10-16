@@ -29,12 +29,10 @@ def test_vercel_backend_preserves_repository_layout(tmp_path):
         shutil.copy2(source, bundle / 'backend' / source.name)
     for directory in ('backend/catalog', 'backend/templates'):
         shutil.copytree(ROOT / directory, bundle / directory)
-    for filename in (
-        'vendor/velxio/frontend/public/components-metadata.json',
-    ):
-        destination = bundle / filename
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(ROOT / filename, destination)
+    (bundle / 'public').mkdir(parents=True)
+    metadata = bundle / 'vendor/velxio/frontend/public/components-metadata.json'
+    metadata.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(ROOT / 'vendor/velxio/frontend/public/components-metadata.json', metadata)
     script = '''
 import importlib.util
 from fastapi.testclient import TestClient

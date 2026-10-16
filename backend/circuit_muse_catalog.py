@@ -18,6 +18,8 @@ CATALOG_ALIASES = {
 
 @lru_cache(maxsize=1)
 def _catalog_entries():
+    if not CATALOG_PATH.is_file():
+        return []
     data = json.loads(CATALOG_PATH.read_text(encoding='utf-8'))
     if data.get('schema_version') != 1 or data.get('provenance', {}).get('revision') != UPSTREAM_REVISION:
         raise ValueError('Invalid Circuit Muse catalog provenance or schema.')
