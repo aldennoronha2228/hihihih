@@ -24,7 +24,9 @@ from starlette.requests import HTTPConnection
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
-ROOT = Path(__file__).resolve().parents[1]
+MODULE_ROOT = Path(__file__).resolve().parent
+ROOT = MODULE_ROOT.parent if (MODULE_ROOT.parent / 'backend').is_dir() else MODULE_ROOT
+BACKEND_ROOT = ROOT / 'backend' if (ROOT / 'backend').is_dir() else ROOT
 DEFAULT_SOURCE = '''void setup() {
   pinMode(LED_BUILTIN, OUTPUT);
 }
@@ -149,7 +151,7 @@ PIN_ALIASES = {
 
 
 def load_component_pins(path=None):
-    path = Path(path) if path else ROOT / 'backend/catalog/component-pins.json'
+    path = Path(path) if path else BACKEND_ROOT / 'catalog/component-pins.json'
     if not path.is_file():
         return {}
     data = json.loads(path.read_text(encoding='utf-8'))
@@ -341,7 +343,15 @@ def validate_spice_properties(entry, supplied, existing=None):
 
 class ComponentCatalog:
     def __init__(self, path=None):
-        path = Path(path) if path else ROOT / 'vendor/velxio/frontend/public/components-metadata.json'
+        if path:
+            path = Path(path)
+        else:
+            candidates = (
+                ROOT / 'vendor/velxio/frontend/public/components-metadata.json',
+                ROOT / 'public/components-metadata.json',
+                BACKEND_ROOT / 'catalog/components-metadata.json',
+            )
+            path = next((candidate for candidate in candidates if candidate.is_file()), candidates[-1])
         self.origin = str(path) if path.is_file() else 'builtin-fallback'
         if path.is_file():
             items = json.loads(path.read_text(encoding='utf-8')).get('components', [])
@@ -757,7 +767,7 @@ class HardwareService:
         elif os.getenv('VERCEL'):
             self.data_dir = Path(tempfile.gettempdir()) / 'wireup-hardware'
         else:
-            self.data_dir = ROOT / 'backend/data/hardware'
+            self.data_dir = BACKEND_ROOT / 'data/hardware'
         self.compiler = compiler or ArduinoCompiler()
         self.runtime = runtime or RuntimeBridge()
         from backend.native_esp32 import NativeESP32

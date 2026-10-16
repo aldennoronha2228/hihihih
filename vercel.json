@@ -6,13 +6,14 @@
       "framework": "vite"
     },
     "backend": {
-      "root": ".",
+      "root": "backend",
       "framework": "fastapi",
-      "entrypoint": "backend/vercel_app.py",
+      "entrypoint": "vercel_app.py",
+      "installCommand": "pip install -r requirements-vercel.txt",
       "functions": {
-        "backend/vercel_app.py": {
-          "includeFiles": "{backend/catalog/**,backend/templates/**,vendor/velxio/frontend/public/components-metadata.json}",
-          "excludeFiles": "{node_modules/**,vendor/**}"
+        "vercel_app.py": {
+          "includeFiles": "{catalog/**,templates/**}",
+          "excludeFiles": "{tests/**,data/**,builds/**}"
         }
       }
     }

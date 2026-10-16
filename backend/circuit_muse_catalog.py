@@ -6,7 +6,8 @@ from functools import lru_cache
 from pathlib import Path
 
 
-ROOT = Path(__file__).resolve().parents[1]
+MODULE_ROOT = Path(__file__).resolve().parent
+ROOT = MODULE_ROOT.parent if (MODULE_ROOT.parent / 'backend').is_dir() else MODULE_ROOT
 CATALOG_PATH = ROOT / 'public/circuit-muse-catalog.json'
 UPSTREAM_REVISION = 'd3cd945fe9bd25437d6559171ae06f8f03cc49ed'
 CATALOG_ALIASES = {

@@ -9,37 +9,27 @@ import sys
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_vercel_backend_preserves_repository_layout(tmp_path):
+def test_vercel_backend_preserves_flattened_service_layout(tmp_path):
     config = json.loads((ROOT / 'vercel.json').read_text(encoding='utf-8'))
     backend = config['services']['backend']
-    assert backend['root'] == '.'
-    assert backend['entrypoint'] == 'backend/vercel_app.py'
-    assert (ROOT / 'requirements.txt').read_text(encoding='utf-8').strip() == '-r backend/requirements-vercel.txt'
-    function = backend['functions']['backend/vercel_app.py']
-    exclude = function['excludeFiles']
-    assert 'node_modules/**' in exclude
-    assert 'vendor/**' in exclude
-    include = function['includeFiles']
-    assert 'backend/catalog/**' in include
-    assert 'vendor/velxio/frontend/public/components-metadata.json' in include
+    assert backend['root'] == 'backend'
+    assert backend['entrypoint'] == 'vercel_app.py'
+    assert backend['installCommand'] == 'pip install -r requirements-vercel.txt'
+    function = backend['functions']['vercel_app.py']
+    assert 'catalog/**' in function['includeFiles']
+    assert 'templates/**' in function['includeFiles']
+    assert 'tests/**' in function['excludeFiles']
 
     bundle = tmp_path / 'function'
-    (bundle / 'backend').mkdir(parents=True)
+    bundle.mkdir()
     for source in (ROOT / 'backend').glob('*.py'):
-        shutil.copy2(source, bundle / 'backend' / source.name)
-    for directory in ('backend/catalog', 'backend/templates'):
-        shutil.copytree(ROOT / directory, bundle / directory)
-    (bundle / 'public').mkdir(parents=True)
-    metadata = bundle / 'vendor/velxio/frontend/public/components-metadata.json'
-    metadata.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(ROOT / 'vendor/velxio/frontend/public/components-metadata.json', metadata)
+        shutil.copy2(source, bundle / source.name)
+    for directory in ('catalog', 'templates'):
+        shutil.copytree(ROOT / 'backend' / directory, bundle / directory)
     script = '''
-import importlib.util
 from fastapi.testclient import TestClient
-spec = importlib.util.spec_from_file_location('vercel_entrypoint', 'backend/vercel_app.py')
-module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(module)
-with TestClient(module.app) as client:
+from vercel_app import app
+with TestClient(app) as client:
     for path in ('/api/health', '/api/hardware/projects', '/api/hardware/catalog?limit=1'):
         response = client.get(path)
         assert response.status_code == 200, (path, response.status_code, response.text)
