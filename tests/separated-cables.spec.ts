@@ -19,6 +19,22 @@ test('parallel cables use separate lanes around component bounds', () => {
   for (const path of paths.values()) expect(path).toContain('Q')
 })
 
+test('dense generated wires favor short paths over perimeter detours', () => {
+  const board = { id: 'board', left: 120, top: 90, right: 310, bottom: 360 }
+  const motors = Array.from({ length: 4 }, (_, index) => ({ id: `motor-${index}`, left: 990, top: 90 + index * 220, right: 1100, bottom: 165 + index * 220 }))
+  const paths = routeWirePaths(motors.flatMap((motor, index) => [
+    { id: `signal-${index}`, start: { component: 'board', x: 310, y: 130 + index * 25, direction: { x: 1, y: 0 } }, end: { component: motor.id, x: motor.left, y: motor.top + 24, direction: { x: -1, y: 0 } } },
+    { id: `ground-${index}`, start: { component: 'board', x: 310, y: 260 + index * 20, direction: { x: 1, y: 0 } }, end: { component: motor.id, x: motor.left, y: motor.top + 49, direction: { x: -1, y: 0 } } },
+  ]), [board, ...motors])
+  expect(paths.size).toBe(8)
+  for (const path of paths.values()) {
+    const numbers = [...path.matchAll(/-?\d+(?:\.\d+)?/g)].map(match => Number(match[0]))
+    expect(Math.min(...numbers)).toBeGreaterThan(-100)
+    expect(Math.max(...numbers)).toBeLessThan(1600)
+    expect((path.match(/ Q /g) ?? []).length).toBeLessThanOrEqual(10)
+  }
+})
+
 for (const width of [1440, 390]) test(`multiple cables remain traceable through editing and navigation at ${width}px`, async ({ page, request }, testInfo) => {
   test.setTimeout(120000)
   const project = await (await request.post('/api/hardware/projects', { data: { name: 'Separated cables', board: 'arduino-uno' } })).json()

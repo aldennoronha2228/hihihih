@@ -6,9 +6,14 @@
       "framework": "vite"
     },
     "backend": {
-      "root": "backend",
+      "root": ".",
       "framework": "fastapi",
-      "entrypoint": "vercel_app.py"
+      "entrypoint": "backend/vercel_app.py",
+      "functions": {
+        "backend/vercel_app.py": {
+          "includeFiles": "{backend/catalog/**,backend/templates/**,vendor/velxio/frontend/public/components-metadata.json}"
+        }
+      }
     }
   },
   "rewrites": [

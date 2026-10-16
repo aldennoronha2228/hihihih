@@ -5,6 +5,8 @@ The Vercel project contains two public-facing services:
 - `app`: the Vite frontend, routed at `/(.*)` after more specific routes.
 - `backend`: the FastAPI API, routed at `/api/(.*)`.
 
+Both services use the repository root. The backend entrypoint is `backend/vercel_app.py`, and the root `requirements.txt` includes `backend/requirements.txt`. This preserves the `backend` Python package and repository-relative paths instead of flattening backend files into the function root. The backend function explicitly includes its catalog, example templates, and shared component metadata.
+
 The browser already uses same-origin `/api/...` HTTP URLs and derives its hardware runtime WebSocket from the same origin, so no build-time frontend service URL is required.
 
 ## External remote simulation
