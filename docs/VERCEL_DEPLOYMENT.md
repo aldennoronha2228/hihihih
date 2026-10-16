@@ -5,7 +5,7 @@ The Vercel project contains two public-facing services:
 - `app`: the Vite frontend, routed at `/(.*)` after more specific routes.
 - `backend`: the FastAPI API, routed at `/api/(.*)`.
 
-Both services use the repository root. The backend entrypoint is `backend/vercel_app.py`, and the root `requirements.txt` includes `backend/requirements.txt`. This preserves the `backend` Python package and repository-relative paths instead of flattening backend files into the function root. The backend function explicitly includes its catalog, example templates, and shared component metadata.
+Both services use the repository root. The backend entrypoint is `backend/vercel_app.py`, and the root `requirements.txt` includes `backend/requirements-vercel.txt` (runtime deps only; local development still uses `backend/requirements.txt`, which adds `uvicorn` and `pytest`). This preserves the `backend` Python package and repository-relative paths instead of flattening backend files into the function root. The backend function explicitly includes its catalog, example templates, and shared component metadata.
 
 Python functions on Vercel bundle every project file reachable from the service root unless excluded. Because the backend service root is the repository root, the frontend `node_modules` tree and the full `vendor/` tree would otherwise be packaged into the same Lambda and exceed the 500 MB limit. `vercel.json` uses `excludeFiles` on `backend/vercel_app.py` to drop frontend assets, tests, docs, and vendored simulator sources, while `includeFiles` keeps the small backend data files the API needs at runtime.
 
