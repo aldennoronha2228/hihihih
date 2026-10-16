@@ -11,7 +11,8 @@
       "entrypoint": "backend/vercel_app.py",
       "functions": {
         "backend/vercel_app.py": {
-          "includeFiles": "{backend/catalog/**,backend/templates/**,vendor/velxio/frontend/public/components-metadata.json}"
+          "includeFiles": "{backend/catalog/**,backend/templates/**,vendor/velxio/frontend/public/components-metadata.json}",
+          "excludeFiles": "{node_modules/**,vendor/**,src/**,public/**,tests/**,backend/tests/**,backend/data/**,backend/builds/**,deployment/**,patches/**,docs/**,.archify/**,.github/**,dist/**,playwright-report/**,test-results/**,audit-artifacts/**,*.md}"
         }
       }
     }

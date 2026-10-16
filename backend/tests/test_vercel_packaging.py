@@ -15,6 +15,13 @@ def test_vercel_backend_preserves_repository_layout(tmp_path):
     assert backend['root'] == '.'
     assert backend['entrypoint'] == 'backend/vercel_app.py'
     assert (ROOT / 'requirements.txt').read_text(encoding='utf-8').strip() == '-r backend/requirements.txt'
+    function = backend['functions']['backend/vercel_app.py']
+    exclude = function['excludeFiles']
+    assert 'node_modules/**' in exclude
+    assert 'vendor/**' in exclude
+    include = function['includeFiles']
+    assert 'backend/catalog/**' in include
+    assert 'vendor/velxio/frontend/public/components-metadata.json' in include
 
     bundle = tmp_path / 'function'
     (bundle / 'backend').mkdir(parents=True)
