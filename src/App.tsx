@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { CircuitBoard } from 'lucide-react'
 import { hardwareApi, isHardwareProject } from '@/lib/hardware'
 import { loadWorkspaceModule } from '@/lib/workspace-module'
@@ -17,6 +17,27 @@ const Preview = lazy(() => import('@/components/demo'))
 const SchematicStudio = lazy(() => import('@/components/schematic-studio').then(module => ({ default: module.SchematicStudio })))
 const HardwareInstruments = lazy(() => import('@/components/hardware-instruments').then(module => ({ default: module.HardwareInstruments })))
 const HardwareWorkspace = lazy(() => loadWorkspaceModule().then(module => ({ default: module.HardwareWorkspace })))
+
+function HostedAuthGate({ children }: { children: ReactNode }) {
+  const [state, setState] = useState<'loading' | 'open' | 'locked'>('loading')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+  useEffect(() => {
+    fetch('/api/auth/session', { credentials: 'include' }).then(async response => {
+      const result = await response.json()
+      setState(result.required && !result.authenticated ? 'locked' : 'open')
+    }).catch(() => setState('open'))
+  }, [])
+  const login = async (event: FormEvent) => {
+    event.preventDefault(); setError('')
+    const response = await fetch('/api/auth/login', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) })
+    if (!response.ok) { setError('Incorrect preview password.'); return }
+    setState('open'); setPassword('')
+  }
+  if (state === 'loading') return <div className="flex h-svh items-center justify-center bg-neutral-950 text-white">Loading…</div>
+  if (state === 'locked') return <main className="flex h-svh items-center justify-center bg-neutral-950 px-6 text-white"><form onSubmit={login} className="w-full max-w-sm space-y-4 rounded-2xl border border-white/10 bg-white/5 p-6"><h1 className="text-xl font-semibold">Private preview</h1><p className="text-sm text-white/60">Sign in to access this WireUp preview.</p><input autoFocus type="password" value={password} onChange={event => setPassword(event.target.value)} placeholder="Preview password" className="w-full rounded-lg bg-black/30 px-3 py-2"/><button type="submit" className="w-full rounded-lg bg-white px-3 py-2 font-medium text-black">Sign in</button>{error && <p className="text-sm text-red-300">{error}</p>}</form></main>
+  return <>{children}</>
+}
 
 function ProjectPage() {
   const [project, setProject] = useState<HardwareProject | null>(null)
@@ -75,6 +96,7 @@ function ProjectPage() {
 export default function App() {
   return (
     <BrowserRouter>
+      <HostedAuthGate>
       <Routes>
         <Route path="/orb" element={<Suspense fallback={<div className="h-svh bg-[#0a0a0a]" />}><Preview /></Suspense>} />
         <Route path="/" element={<PlatformHome />} />
@@ -85,6 +107,7 @@ export default function App() {
         <Route path="/project/:projectId" element={<ProjectPage />} />
         <Route path="*" element={<div className="flex h-svh items-center justify-center bg-neutral-950 text-white"><a href="/">Page not found. Return to WireUp.</a></div>} />
       </Routes>
+      </HostedAuthGate>
     </BrowserRouter>
   )
 }
