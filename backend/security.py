@@ -63,7 +63,8 @@ class SecurityMiddleware:
                  max_body_bytes=None, max_concurrent_requests=None, public_health=None,
                  body_timeout_seconds=None):
         self.app = app
-        self.production = (os.getenv('WIREUP_DEPLOYMENT', '').lower() == 'production'
+        deployment = os.getenv('WIREUP_DEPLOYMENT', '').lower()
+        self.production = (deployment in ('preview', 'production', 'hosted')
                            if production is None else bool(production))
         token = os.getenv('WIREUP_ACCESS_TOKEN', '') if access_token is None else access_token
         if token and (not isinstance(token, str) or re.fullmatch(r'[A-Za-z0-9._~+/-]+=*', token) is None):
